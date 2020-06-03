@@ -129,9 +129,14 @@ def project_to_image_space(anchors, stereo_calib_p2, image_shape):
                           z + dim_z_half]).T.reshape(1, -1)
 
     anchor_corners = np.vstack([x_corners, y_corners, z_corners])
-
+    intrinsic = stereo_calib_p2.intrinsic
+    rotation = stereo_calib_p2.rotation
+    translation = stereo_calib_p2.translation
+    
+    camera_matrix = compute_camera_matrix(intrinsic, rotatation, translation)
+    
     # Apply the 2D image plane transformation
-    pts_2d = calib_utils.project_to_image(anchor_corners, stereo_calib_p2)
+    pts_2d = project_to_image(anchor_corners, camera_matrix)
 
     # Get the min and maxes of image coordinates
     i_axis_min_points = np.amin(pts_2d[0, :].reshape(-1, 8), axis=1)
@@ -304,3 +309,63 @@ def project_to_image_tensor(points_3d, cam_p2_matrix):
                                  axis=0)
 
     return stacked_points_2d
+
+def project_to_image(point_cloud, p):
+    """ Projects a 3D point cloud to 2D points for plotting
+
+    :param point_cloud: 3D point cloud (3, N)
+    :param p: Camera matrix (3, 4)
+
+    :return: pts_2d: the image coordinates of the 3D points in the shape (2, N)
+    """
+
+    pts_2d = np.dot(p, np.append(point_cloud,
+                                 np.ones((1, point_cloud.shape[1])),
+                                 axis=0))
+
+    pts_2d[0, :] = pts_2d[0, :] / pts_2d[2, :]
+    pts_2d[1, :] = pts_2d[1, :] / pts_2d[2, :]
+    pts_2d = np.delete(pts_2d, 2, 0)
+    return pts_2d
+
+def quaternion_to_matrix(q):
+    """ Converts a quaternion vector into a rotation matrix.
+    
+    :param q: quaternion, 4x1 vecctor.
+    
+    :return: rotation matrix, 3x3.
+    
+    """
+    x11 = 1-2*q[2]**2 - 2*q[3]**2
+    x21 = 2*q[1]*q[2] + 2*q[0]*q[3]
+    x31 = 2*q[1]*q[3] - 2*q[0]*q[2]
+    x12 = 2*q[1]*q[2] - 2*q[0]*q[3]
+    x22 = 1-2*q[1]**2 -2*q[3]**2
+    x32 = 2*q[2]*q[3] + 2*q[0]*q[1]
+    x13 = 2*q[1]*q[3] + 2*q[0]*q[2]
+    x23 = 2*q[2]*q[3] - 2*q[0]*q[1]
+    x33 = 1- 2*q[1]**2 - 2*q[2]**2
+    row1 = [x11, x12, x13]
+    row2 = [x21, x22, x23]
+    row3 = [x31, x32, x33]
+    return [row1, row2, row3]
+
+def compute_camera_matrix(intr, rotat, transl):
+    """ Computes the camera matrix from the calibration parameters.
+    
+    :param intr: numpy array of the intrinsic camera matrix.
+    :param rotat: 3x3 edgelist with the rotation matrix.
+    :param transl: list with the translation vector.
+    
+    :return: camera matrix as numpy array.
+    
+    """
+    row1= rotat[0]
+    row2= rotat[1]
+    row3= rotat[2]
+    row1.append(transl[0])
+    row2.append(transl[1])
+    row3.append(transl[2])
+    extrinsic=np.array([row1,row2,row3])
+    camera_matrix=intrinsic.dot(extrinsic)
+    return camera_matrix

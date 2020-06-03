@@ -1,4 +1,4 @@
-from tensorflow.contrib import slim
+import tf_slim as slim
 
 from avod.core.avod_fc_layers import avod_fc_layer_utils
 
@@ -44,43 +44,19 @@ def build(fc_layers_config,
         raise ValueError('Length of layer_sizes does not match num_layers')
 
     if fusion_type == 'early':
-        cls_logits, offsets, angle_vectors = \
-            _early_fusion_fc_layers(num_layers=num_layers,
-                                    layer_sizes=layer_sizes,
-                                    input_rois=input_rois,
-                                    input_weights=input_weights,
-                                    fusion_method=fusion_method,
-                                    l2_weight_decay=l2_weight_decay,
-                                    keep_prob=keep_prob,
-                                    num_final_classes=num_final_classes,
-                                    box_rep=box_rep,
-                                    is_training=is_training)
+        cls_logits, offsets, angle_vectors = _early_fusion_fc_layers(num_layers=num_layers, layer_sizes=layer_sizes, input_rois=input_rois, 
+                                                                     input_weights=input_weights, fusion_method=fusion_method, l2_weight_decay=l2_weight_decay,
+                                                                     keep_prob=keep_prob, num_final_classes=num_final_classes, box_rep=box_rep, is_training=is_training)
 
     elif fusion_type == 'late':
-        cls_logits, offsets, angle_vectors = \
-            _late_fusion_fc_layers(num_layers=num_layers,
-                                   layer_sizes=layer_sizes,
-                                   input_rois=input_rois,
-                                   input_weights=input_weights,
-                                   fusion_method=fusion_method,
-                                   l2_weight_decay=l2_weight_decay,
-                                   keep_prob=keep_prob,
-                                   num_final_classes=num_final_classes,
-                                   box_rep=box_rep,
-                                   is_training=is_training)
+        cls_logits, offsets, angle_vectors = _late_fusion_fc_layers(num_layers=num_layers, layer_sizes=layer_sizes, input_rois=input_rois, input_weights=input_weights, 
+                                                                    fusion_method=fusion_method, l2_weight_decay=l2_weight_decay, keep_prob=keep_prob, 
+                                                                    num_final_classes=num_final_classes, box_rep=box_rep, is_training=is_training)
 
     elif fusion_type == 'deep':
-        cls_logits, offsets, angle_vectors = \
-            _deep_fusion_fc_layers(num_layers=num_layers,
-                                   layer_sizes=layer_sizes,
-                                   input_rois=input_rois,
-                                   input_weights=input_weights,
-                                   fusion_method=fusion_method,
-                                   l2_weight_decay=l2_weight_decay,
-                                   keep_prob=keep_prob,
-                                   num_final_classes=num_final_classes,
-                                   box_rep=box_rep,
-                                   is_training=is_training)
+        cls_logits, offsets, angle_vectors = _deep_fusion_fc_layers(num_layers=num_layers, layer_sizes=layer_sizes, input_rois=input_rois, input_weights=input_weights, 
+                                                                    fusion_method=fusion_method, l2_weight_decay=l2_weight_decay, keep_prob=keep_prob, 
+                                                                    num_final_classes=num_final_classes, box_rep=box_rep, is_training=is_training)
     else:
         raise ValueError('Invalid fusion type {}'.format(fusion_type))
 
@@ -105,28 +81,19 @@ def build_output_layers(tensor_in,
     """
 
     # Classification
-    cls_logits = slim.fully_connected(tensor_in,
-                                      num_final_classes,
-                                      activation_fn=None,
-                                      scope='cls_out')
+    cls_logits = tf.keras.layers.Dense(num_final_classes, activation=None, scope='cls_out')(tensor_in)
 
     # Offsets
     off_out_size = avod_fc_layer_utils.OFFSETS_OUTPUT_SIZE[box_rep]
     if off_out_size > 0:
-        off_out = slim.fully_connected(tensor_in,
-                                       off_out_size,
-                                       activation_fn=None,
-                                       scope='off_out')
+        off_out = tf.keras.layers.Dense(off_out_size, activation=None, scope='off_out')(tensor_in)
     else:
         off_out = None
 
     # Angle Unit Vectors
     ang_out_size = avod_fc_layer_utils.ANG_VECS_OUTPUT_SIZE[box_rep]
     if ang_out_size > 0:
-        ang_out = slim.fully_connected(tensor_in,
-                                       ang_out_size,
-                                       activation_fn=None,
-                                       scope='ang_out')
+        ang_out = tf.keras.layers.Dense(ang_out_size, activation=None, scope='ang_out')(tensor_in)
     else:
         ang_out = None
 
@@ -143,40 +110,26 @@ def _early_fusion_fc_layers(num_layers, layer_sizes,
         raise ValueError('num_layers does not match length of layer_sizes')
 
     if l2_weight_decay > 0:
-        weights_regularizer = slim.l2_regularizer(l2_weight_decay)
+        weights_regularizer = tf.keras.regularizers.l2(l2_weight_decay)
     else:
         weights_regularizer = None
 
     # Feature fusion
-    fused_features = avod_fc_layer_utils.feature_fusion(fusion_method,
-                                                        input_rois,
+    fused_features = avod_fc_layer_utils.feature_fusion(fusion_method, input_rois,
                                                         input_weights)
 
     # Flatten
-    fc_drop = slim.flatten(fused_features)
+    fc_drop = tf.keras.layers.Flattenn(fused_features)
 
-    with slim.arg_scope(
-            [slim.fully_connected],
-            weights_regularizer=weights_regularizer):
+    for layer_idx in range(num_layers):
+        fc_name_idx = 6 + layer_idx
 
-        for layer_idx in range(num_layers):
-            fc_name_idx = 6 + layer_idx
-
-            # Use conv2d instead of fully_connected layers.
-            fc_layer = slim.fully_connected(fc_drop, layer_sizes[layer_idx],
-                                            scope='fc{}'.format(fc_name_idx))
-
-            fc_drop = slim.dropout(
-                fc_layer,
-                keep_prob=keep_prob,
-                is_training=is_training,
-                scope='fc{}_drop'.format(fc_name_idx))
-
-            fc_name_idx += 1
-
-        output_layers = build_output_layers(fc_drop,
-                                            num_final_classes,
-                                            box_rep)
+        # Use conv2d instead of fully_connected layers.
+        fc_layer = tf.keras.layers.Dense(layer_sizes[layer_idx], kernel_regularizer=weights_regularizer,
+                                            scope='fc{}'.format(fc_name_idx))(fc_drop)
+        fc_drop = tf.keras.layers.Dropout(rate=keep_prob, is_training=is_training, scope='fc{}_drop'.format(fc_name_idx))(fc_layer)
+        fc_name_idx += 1
+        output_layers = build_output_layers(fc_drop, num_final_classes, box_rep)
     return output_layers
 
 
@@ -187,7 +140,7 @@ def _late_fusion_fc_layers(num_layers, layer_sizes,
                            is_training):
 
     if l2_weight_decay > 0:
-        weights_regularizer = slim.l2_regularizer(l2_weight_decay)
+        weights_regularizer = tf.keras.regularizer.l2(l2_weight_decay)
     else:
         weights_regularizer = None
 
@@ -195,41 +148,28 @@ def _late_fusion_fc_layers(num_layers, layer_sizes,
     num_branches = len(input_rois)
     branch_outputs = []
 
-    with slim.arg_scope(
-            [slim.fully_connected],
-            weights_regularizer=weights_regularizer):
-        for branch_idx in range(num_branches):
+    for branch_idx in range(num_branches):
+        # Branch feature ROIs
+        branch_rois = input_rois[branch_idx]
+        fc_drop = slim.flatten(branch_rois, scope='br{}_flatten'.format(branch_idx))
 
-            # Branch feature ROIs
-            branch_rois = input_rois[branch_idx]
-            fc_drop = slim.flatten(branch_rois,
-                                   scope='br{}_flatten'.format(branch_idx))
+        for layer_idx in range(num_layers):
+            fc_name_idx = 6 + layer_idx
 
-            for layer_idx in range(num_layers):
-                fc_name_idx = 6 + layer_idx
+            # Use conv2d instead of fully_connected layers.
+            fc_layer = tf.keras.layers.Dense(layer_sizes[layer_idx], kernel_regularizer=weights_regularizer,
+                                            scope='br{}_fc{}'.format(branch_idx, fc_name_idx))(fc_drop)
 
-                # Use conv2d instead of fully_connected layers.
-                fc_layer = slim.fully_connected(
-                    fc_drop, layer_sizes[layer_idx],
-                    scope='br{}_fc{}'.format(branch_idx, fc_name_idx))
+            fc_drop = tf.keras.layers.Dropout(rate=keep_prob, is_training=is_training,
+                                    scope='br{}_fc{}_drop'.format(branch_idx, fc_name_idx))(fc_layer)
 
-                fc_drop = slim.dropout(
-                    fc_layer,
-                    keep_prob=keep_prob,
-                    is_training=is_training,
-                    scope='br{}_fc{}_drop'.format(branch_idx, fc_name_idx))
-
-            branch_outputs.append(fc_drop)
+        branch_outputs.append(fc_drop)
 
         # Feature fusion
-        fused_features = avod_fc_layer_utils.feature_fusion(fusion_method,
-                                                            branch_outputs,
-                                                            input_weights)
+    fused_features = avod_fc_layer_utils.feature_fusion(fusion_method, branch_outputs, input_weights)
 
         # Ouput layers
-        output_layers = build_output_layers(fused_features,
-                                            num_final_classes,
-                                            box_rep)
+    output_layers = build_output_layers(fused_features, num_final_classes, box_rep)
     return output_layers
 
 
@@ -240,43 +180,29 @@ def _deep_fusion_fc_layers(num_layers, layer_sizes,
                            is_training):
 
     if l2_weight_decay > 0:
-        weights_regularizer = slim.l2_regularizer(l2_weight_decay)
+        weights_regularizer = tf.keras.regularizer.l2(l2_weight_decay)
     else:
         weights_regularizer = None
 
     # Apply fusion
-    fusion_layer = avod_fc_layer_utils.feature_fusion(fusion_method,
-                                                      input_rois,
-                                                      input_weights)
-    fusion_layer = slim.flatten(fusion_layer, scope='flatten')
+    fusion_layer = avod_fc_layer_utils.feature_fusion(fusion_method, input_rois, input_weights)
+    fusion_layer = tf.keras.layers.Flatten(fusion_layer, scope='flatten')
 
-    with slim.arg_scope(
-            [slim.fully_connected],
-            weights_regularizer=weights_regularizer):
-        # Build layers
-        for layer_idx in range(num_layers):
-            fc_name_idx = 6 + layer_idx
+    # Build layers
+    for layer_idx in range(num_layers):
+        fc_name_idx = 6 + layer_idx
+        all_branches = []
+        for branch_idx in range(len(input_rois)):
+            fc_layer = tf.keras.layers.Dense(layer_sizes[layer_idx], kernel_regularizer=weights_regularizer,
+                scope='br{}_fc{}'.format(branch_idx, fc_name_idx))(fusion_layer)
+            fc_drop = tf.keras.layers.Dropout(rate=keep_prob, is_training=is_training, 
+                                   scope='br{}_fc{}_drop'.format(branch_idx, fc_name_idx))(fc_layer)
 
-            all_branches = []
-            for branch_idx in range(len(input_rois)):
-                fc_layer = slim.fully_connected(
-                    fusion_layer, layer_sizes[layer_idx],
-                    scope='br{}_fc{}'.format(branch_idx, fc_name_idx))
-                fc_drop = slim.dropout(
-                    fc_layer,
-                    keep_prob=keep_prob,
-                    is_training=is_training,
-                    scope='br{}_fc{}_drop'.format(branch_idx, fc_name_idx))
+            all_branches.append(fc_drop)
 
-                all_branches.append(fc_drop)
+        # Apply fusion
+        fusion_layer = avod_fc_layer_utils.feature_fusion(fusion_method, all_branches, input_weights)
 
-            # Apply fusion
-            fusion_layer = avod_fc_layer_utils.feature_fusion(fusion_method,
-                                                              all_branches,
-                                                              input_weights)
-
-        # Ouput layers
-        output_layers = build_output_layers(fusion_layer,
-                                            num_final_classes,
-                                            box_rep)
+    # Ouput layers
+    output_layers = build_output_layers(fusion_layer, num_final_classes, box_rep)
     return output_layers

@@ -184,15 +184,15 @@ class MiniBatchUtils:
         if negative_iou_range[0] > 0.0:
             # If neg_iou_lo is > 0.0, the mini batch may be empty.
             # In that case, use all background and negative labels
-            neg_labels = tf.logical_and(
+            neg_labels = tf.math.logical_and(
                 bkg_and_neg_labels,
-                tf.greater_equal(max_ious, negative_iou_range[0]))
+                tf.math.greater_equal(max_ious, negative_iou_range[0]))
 
-            new_indicator = tf.logical_or(pos_labels, neg_labels)
+            new_indicator = tf.math.logical_or(pos_labels, neg_labels)
 
-            num_valid = tf.reduce_sum(tf.cast(indicator, tf.int32))
+            num_valid = tf.math.reduce_sum(tf.cast(indicator, tf.int32))
             indicator = tf.cond(
-                tf.greater(num_valid, 0),
+                tf.math.greater(num_valid, 0),
                 true_fn=lambda: tf.identity(new_indicator),
                 false_fn=lambda: tf.identity(bkg_and_neg_labels))
 
@@ -311,7 +311,7 @@ class MiniBatchUtils:
         # this will keep the positive class labels and sets everything else
         # to zero ('Background' class).
         # cast these to int as the class labels are in floats
-        mb_class_indices = tf.multiply(tf.cast(masked_labels, tf.int32),
+        mb_class_indices = tf.math.multiply(tf.cast(masked_labels, tf.int32),
                                        tf.cast(mask_pos_mask, tf.int32))
 
         return mb_class_indices

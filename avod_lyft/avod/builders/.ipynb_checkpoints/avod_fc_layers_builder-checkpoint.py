@@ -42,30 +42,18 @@ def build(layers_config,
         if fc_layers_type == 'basic_fc_layers':
             fc_layers_config = layers_config.basic_fc_layers
 
-            cls_logits, offsets, angle_vectors, end_points = \
-                basic_fc_layers.build(
-                    fc_layers_config=fc_layers_config,
-                    input_rois=input_rois,
-                    input_weights=input_weights,
-                    num_final_classes=num_final_classes,
-                    box_rep=box_rep,
-
-                    is_training=is_training,
-                    end_points_collection=end_points_collection)
+            cls_logits, offsets, angle_vectors, end_points = basic_fc_layers.build( fc_layers_config=fc_layers_config, input_rois=input_rois, 
+                                                                                   input_weights=input_weights, num_final_classes=num_final_classes,
+                                                                                   box_rep=box_rep, is_training=is_training, 
+                                                                                   end_points_collection=end_points_collection)
 
         elif fc_layers_type == 'fusion_fc_layers':
             fc_layers_config = layers_config.fusion_fc_layers
 
-            cls_logits, offsets, angle_vectors, end_points = \
-                fusion_fc_layers.build(
-                    fc_layers_config=fc_layers_config,
-                    input_rois=input_rois,
-                    input_weights=input_weights,
-                    num_final_classes=num_final_classes,
-                    box_rep=box_rep,
-
-                    is_training=is_training,
-                    end_points_collection=end_points_collection)
+            cls_logits, offsets, angle_vectors, end_points = fusion_fc_layers.build( fc_layers_config=fc_layers_config, input_rois=input_rois, 
+                                                                                    input_weights=input_weights, num_final_classes=num_final_classes, 
+                                                                                    box_rep=box_rep, is_training=is_training,
+                                                                                    end_points_collection=end_points_collection)
 
         else:
             raise ValueError('Invalid fc layers config')

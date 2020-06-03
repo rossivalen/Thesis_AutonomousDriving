@@ -36,17 +36,9 @@ def build(fc_layers_config,
     l2_weight_decay = fc_layers_config.l2_weight_decay
     keep_prob = fc_layers_config.keep_prob
 
-    cls_logits, offsets, angle_vectors = \
-        _basic_fc_layers(num_layers=num_layers,
-                         layer_sizes=layer_sizes,
-                         input_rois=input_rois,
-                         input_weights=input_weights,
-                         fusion_method=fusion_method,
-                         l2_weight_decay=l2_weight_decay,
-                         keep_prob=keep_prob,
-                         num_final_classes=num_final_classes,
-                         box_rep=box_rep,
-                         is_training=is_training)
+    cls_logits, offsets, angle_vectors = _basic_fc_layers(num_layers=num_layers, layer_sizes=layer_sizes, input_rois=input_rois, 
+                                                          input_weights=input_weights, fusion_method=fusion_method, l2_weight_decay=l2_weight_decay, 
+                                                          keep_prob=keep_prob, num_final_classes=num_final_classes, box_rep=box_rep, is_training=is_training)
 
     end_points = slim.utils.convert_collection_to_dict(end_points_collection)
 
@@ -69,21 +61,15 @@ def build_output_layers(tensor_in,
         Output layers
     """
     layer_out = None
-
+    input_tf = tf.keras.layers.Input(shape=None, tensor=tensor_in)
     if output == 'cls':
         # Classification
-        layer_out = slim.fully_connected(tensor_in,
-                                         num_final_classes,
-                                         activation_fn=None,
-                                         scope='cls_out')
+        layer_out = tf.keras.layers.Dense(units=num_final_classes, activation=None, scope='cls_out')(input_tf)
     elif output == 'off':
         # Offsets
         off_out_size = avod_fc_layer_utils.OFFSETS_OUTPUT_SIZE[box_rep]
         if off_out_size > 0:
-            layer_out = slim.fully_connected(tensor_in,
-                                             off_out_size,
-                                             activation_fn=None,
-                                             scope='off_out')
+            layer_out = tf.keras.layers.Dense(units=off_out_size, activation=None, scope='off_out')(input_tf)
         else:
             layer_out = None
 
@@ -91,10 +77,7 @@ def build_output_layers(tensor_in,
         # Angle Unit Vectors
         ang_out_size = avod_fc_layer_utils.ANG_VECS_OUTPUT_SIZE[box_rep]
         if ang_out_size > 0:
-            layer_out = slim.fully_connected(tensor_in,
-                                             ang_out_size,
-                                             activation_fn=None,
-                                             scope='ang_out')
+            layer_out = tf.keras.layers.Dense(units=ang_out_size, activation=None, scope='ang_out')(input_tf)
         else:
             layer_out = None
 
@@ -111,53 +94,35 @@ def _basic_fc_layers(num_layers, layer_sizes,
         raise ValueError('num_layers does not match length of layer_sizes')
 
     if l2_weight_decay > 0:
-        weights_regularizer = slim.l2_regularizer(l2_weight_decay)
+        weights_regularizer = tf.keras.regularizer.l2(l2_weight_decay)
     else:
         weights_regularizer = None
 
     # Feature fusion
-    fused_features = avod_fc_layer_utils.feature_fusion(fusion_method,
-                                                        input_rois,
-                                                        input_weights)
+    fused_features = avod_fc_layer_utils.feature_fusion(fusion_method, input_rois, input_weights)
     output_names = ['cls', 'off', 'ang']
     cls_logits = None
     offsets = None
     angles = None
 
-    with slim.arg_scope(
-            [slim.fully_connected],
-            weights_regularizer=weights_regularizer):
-        for output in output_names:
-            # Flatten
-            fc_drop = slim.flatten(fused_features,
-                                   scope=output + '_flatten')
-            for layer_idx in range(num_layers):
-                fc_name_idx = 6 + layer_idx
+    for output in output_names:
+        # Flatten
+        fc_drop = tf.keras.layers.Flatten(scope=output + '_flatten')(fused_features)
+        for layer_idx in range(num_layers):
+            fc_name_idx = 6 + layer_idx
 
-                # Use conv2d instead of fully_connected layers.
-                fc_layer = slim.fully_connected(fc_drop, layer_sizes[layer_idx],
-                                                scope=output + '_fc{}'.format(fc_name_idx))
-
-                fc_drop = slim.dropout(fc_layer,
-                                       keep_prob=keep_prob,
-                                       is_training=is_training,
-                                       scope=output + '_fc{}_drop'.format(fc_name_idx))
-
-                fc_name_idx += 1
-            if output == 'cls':
-                cls_logits= build_output_layers(fc_drop,
-                                                num_final_classes,
-                                                box_rep,
-                                                output)
-            elif output == 'off':
-                offsets = build_output_layers(fc_drop,
-                                              num_final_classes,
-                                              box_rep,
-                                              output)
-            elif output == 'ang':
-                angles = build_output_layers(fc_drop,
-                                             num_final_classes,
-                                             box_rep,
-                                             output)
+            # Use conv2d instead of fully_connected layers.
+            fc_layer = tf.keras.layers.Dense(layer_sizes[layer_idx], kernel_regularizer=weights_regularizer,
+                                                scope=output + '_fc{}'.format(fc_name_idx))(fc_drop)
+            fc_drop = tf.keras.layers.Dropout(rate=keep_prob, is_training=is_training,
+                                              scope=output + '_fc{}_drop'.format(fc_name_idx))(fc_layer)
+            fc_name_idx += 1
+            
+        if output == 'cls':
+            cls_logits= build_output_layers(fc_drop,  num_final_classes, box_rep, output)
+        elif output == 'off':
+            offsets = build_output_layers(fc_drop, num_final_classes, box_rep, output)
+        elif output == 'ang':
+            angles = build_output_layers(fc_drop, num_final_classes, box_rep, output)
 
     return cls_logits, offsets, angles

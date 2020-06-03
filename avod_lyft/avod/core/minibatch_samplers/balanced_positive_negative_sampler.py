@@ -82,17 +82,17 @@ class BalancedPositiveNegativeSampler(minibatch_sampler.MinibatchSampler):
                              indicator.dtype)
 
         # Only sample from indicated samples
-        negative_idx = tf.logical_not(labels)
-        positive_idx = tf.logical_and(labels, indicator)
-        negative_idx = tf.logical_and(negative_idx, indicator)
+        negative_idx = tf.math.logical_not(labels)
+        positive_idx = tf.math.logical_and(labels, indicator)
+        negative_idx = tf.math.logical_and(negative_idx, indicator)
 
         # Sample positive and negative samples separately
         max_num_pos = int(self._positive_fraction * batch_size)
         sampled_pos_idx = self.subsample_indicator(positive_idx, max_num_pos)
-        max_num_neg = batch_size - tf.reduce_sum(
+        max_num_neg = batch_size - tf.math.reduce_sum(
             tf.cast(sampled_pos_idx, tf.int32))
         sampled_neg_idx = self.subsample_indicator(negative_idx, max_num_neg)
 
-        sampled_idx = tf.logical_or(sampled_pos_idx, sampled_neg_idx)
+        sampled_idx = tf.math.logical_or(sampled_pos_idx, sampled_neg_idx)
 
         return sampled_idx, sampled_pos_idx

@@ -36,8 +36,8 @@ def feature_fusion(fusion_method, inputs, input_weights):
         fused_features = None
 
         if fusion_method == 'mean':
-            rois_sum = tf.reduce_sum(inputs, axis=0)
-            rois_mean = tf.divide(rois_sum, tf.reduce_sum(input_weights))
+            rois_sum = tf.math.reduce_sum(inputs, axis=0)
+            rois_mean = tf.math.divide(rois_sum, tf.math.reduce_sum(input_weights))
             fused_features = rois_mean
 
         elif fusion_method == 'concat':
@@ -46,7 +46,7 @@ def feature_fusion(fusion_method, inputs, input_weights):
             fused_features = tf.concat(inputs, axis=last_axis)
 
         elif fusion_method == 'max':
-            fused_features = tf.maximum(inputs[0], inputs[1])
+            fused_features = tf.math.maximum(inputs[0], inputs[1])
 
         else:
             raise ValueError('Invalid fusion method', fusion_method)

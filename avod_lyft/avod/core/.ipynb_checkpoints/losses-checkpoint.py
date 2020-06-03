@@ -42,7 +42,7 @@ class Loss(object):
         Returns:
             loss: a tensor representing the value of the loss function.
         """
-        with tf.name_scope(scope, 'Loss',
+        with tf.compat.v1.name_scope(scope, 'Loss',
                            [prediction_tensor, target_tensor, params]) as scope:
             if ignore_nan_targets:
                 target_tensor = tf.where(tf.is_nan(target_tensor),
