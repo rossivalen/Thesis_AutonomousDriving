@@ -130,10 +130,10 @@ def project_to_image_space(anchors, stereo_calib_p2, image_shape):
 
     anchor_corners = np.vstack([x_corners, y_corners, z_corners])
     intrinsic = stereo_calib_p2.intrinsic
-    rotation = stereo_calib_p2.rotation
-    translation = stereo_calib_p2.translation
+    rotation = np.ndarray.tolist(stereo_calib_p2.rotation)
+    translation =stereo_calib_p2.translation
     
-    camera_matrix = compute_camera_matrix(intrinsic, rotatation, translation)
+    camera_matrix = compute_camera_matrix(intrinsic, rotation, translation)
     
     # Apply the 2D image plane transformation
     pts_2d = project_to_image(anchor_corners, camera_matrix)
@@ -144,18 +144,19 @@ def project_to_image_space(anchors, stereo_calib_p2, image_shape):
 
     i_axis_max_points = np.amax(pts_2d[0, :].reshape(-1, 8), axis=1)
     j_axis_max_points = np.amax(pts_2d[1, :].reshape(-1, 8), axis=1)
-
+    print(i_axis_min_points.shape, j_axis_min_points.shape, i_axis_max_points.shape, j_axis_max_points.shape)
     box_corners = np.vstack([i_axis_min_points, j_axis_min_points,
                              i_axis_max_points, j_axis_max_points]).T
-
+    box_corners_dim = np.array([i_axis_min_points, j_axis_min_points,
+                             i_axis_max_points, j_axis_max_points]).T
     # Normalize
     image_shape_h = image_shape[0]
     image_shape_w = image_shape[1]
 
-    image_shape_tiled = [image_shape_w, image_shape_h,
-                         image_shape_w, image_shape_h]
+    image_shape_tiled = np.array([image_shape_w, image_shape_h,
+                                image_shape_w, image_shape_h])
 
-    box_corners_norm = box_corners / image_shape_tiled
+    box_corners_norm = box_corners_dim / image_shape_tiled
 
     return np.array(box_corners, dtype=np.float32), \
         np.array(box_corners_norm, dtype=np.float32)
@@ -367,5 +368,5 @@ def compute_camera_matrix(intr, rotat, transl):
     row2.append(transl[1])
     row3.append(transl[2])
     extrinsic=np.array([row1,row2,row3])
-    camera_matrix=intrinsic.dot(extrinsic)
+    camera_matrix=intr.dot(extrinsic)
     return camera_matrix

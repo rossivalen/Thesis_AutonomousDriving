@@ -45,8 +45,6 @@ def object_label_to_box_3d(obj_label):
         anchor: 3D box in box_3d format [x, y, z, l, w, h, ry]
     """
 
-    fc.check_object_label_format(obj_label)
-
     box_3d = np.zeros(7)
 
     box_3d[0:3] = obj_label.t

@@ -1,3 +1,4 @@
+
 """
 This module checks for the correct data format and dimensions.
 
@@ -49,7 +50,7 @@ import numpy as np
 import tensorflow as tf
 
 from wavedata.tools.obj_detection import obj_utils
-
+import preproc_helper
 
 def check_object_label_format(input_data):
     """Checks for correct ObjectLabel format. If not proper type, raises error.
@@ -61,7 +62,7 @@ def check_object_label_format(input_data):
     # Since the object label is a list, it becomes slow to check
     # Check if it is a ObjectLabel format or a list of Object Label format
     if isinstance(input_data, list):
-        if not all(isinstance(x, obj_utils.ObjectLabel) for x in input_data):
+        if not all(isinstance(x, preproc_helper.ObjectLabel) for x in input_data):
             raise TypeError('Given input is not consistent ObjectLabel type.')
 
         for label in input_data:

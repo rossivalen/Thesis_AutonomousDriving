@@ -1,6 +1,10 @@
 import numpy as np
 import os
 from pyquaternion import Quaternion
+import math
+from avod.core import box_3d_encoder
+import avod.builders.config_builder_util as config_build
+from avod.core.mini_batch_utils import MiniBatchUtils
 
 class ObjectLabel:
     """Object Label Class
@@ -27,17 +31,28 @@ class ObjectLabel:
         self.w = 0.
         self.l = 0.
         self.t = (0., 0., 0.)
-        self.ry = (0., 0., 0., 0.)
+        self.ry = 0.
         self.score = 0.
+        
+class Config:
+    
+    def __init__(self):
+        config_path = 'avod/configs/unittest_pipeline.config'
+        pipeline_config=config_build.get_configs_from_pipeline_file(config_path, "val")
+        self.config = pipeline_config[3].kitti_utils_config
+        self.scene_idx = 5
+        self.area_extents = np.reshape(self.config.area_extents, (3, 2))
+        self.bev_extents = self.area_extents[[0, 2]]
+        self.voxel_size = self.config.voxel_size
+        self.anchor_strides = np.reshape(self.config.anchor_strides, (-1, 2))
 
-def read_labels(label_dir, sample_token, dataset, results=False):
-    """Reads in label data file from Kitti Dataset.
+def read_labels(sample_token, dataset, results=False):
+    """Reads in label data.
 
     Returns:
     obj_list -- List of instances of class ObjectLabel.
 
     Keyword arguments:
-    label_dir -- directory of the label files
     sample_token -- sample token you want to analyze
     """
     # To see which token it gets, look at load labels!
@@ -60,8 +75,10 @@ def read_labels(label_dir, sample_token, dataset, results=False):
         obj.l = size[1]
         obj.t = sample_annot.get("translation")
         rotation = sample_annot.get("rotation")
-        quaternion_ry = Quaternion(rotation)
-        obj.ry = sample_annot.get("rotation")
+        quaternion = Quaternion(rotation)
+        X,Y,Z = quaternion_to_euler( quaternion )
+        ry= math.radians(Y)
+        obj.ry = ry
 #       still have to write the score class
 #       if results:
 #           obj.score = float(p[idx, 15])
@@ -122,3 +139,84 @@ def load_sample_names(scene_idx, dataset, all_scenes=False):
                 token_list.append(tok)  
                                                     
         return token_list
+def quaternion_to_euler( quaternion ):
+
+    x=quaternion[0]
+    y=quaternion[1]
+    z=quaternion[2]
+    w=quaternion[3]
+    
+    t0 = +2.0 * (w * x + y * z)
+    t1 = +1.0 - 2.0 * (x * x + y * y)
+    X = math.degrees(math.atan2(t0, t1))
+
+    t2 = +2.0 * (w * y - z * x)
+    t2 = +1.0 if t2 > +1.0 else t2
+    t2 = -1.0 if t2 < -1.0 else t2
+    Y = math.degrees(math.asin(t2))
+
+    t3 = +2.0 * (w * z + x * y)
+    t4 = +1.0 - 2.0 * (y * y + z * z)
+    Z = math.degrees(math.atan2(t3, t4))
+
+    return X, Y, Z
+
+def load_sample_info(sample_name, classes, dataset):
+    
+    anchors_info = get_anchors_info(dataset, classes, sample_name)
+    obj_labels = read_labels(sample_name, dataset, results=False)
+    train_on_all_samples = False
+    
+    # Only use objects that match dataset classes
+    if obj_labels is not None:
+            label_boxes_3d = np.asarray([box_3d_encoder.object_label_to_box_3d(obj_label) for obj_label in obj_labels])
+            obj_classes = [obj_label.cls for obj_label in obj_labels]
+            label_classes = [class_str_to_index(obj_label.cls) for obj_label in obj_labels]
+            label_classes = np.asarray(label_classes, dtype=np.int32)
+
+            # Return empty anchors_info if no ground truth after filtering
+            if len(label_boxes_3d) == 0:
+                anchors_info = []
+                if train_on_all_samples:
+                    # If training without any positive labels, we cannot
+                    # set these to zeros, because later on the offset calc
+                    # uses log on these anchors. So setting any arbitrary
+                    # number here that does not break the offset calculation
+                    # should work, since the negative samples won't be
+                    # regressed in any case.
+                    dummy_anchors = [[-1000, -1000, -1000, 1, 1, 1]]
+                    label_anchors = np.asarray(dummy_anchors)
+                    dummy_boxes = [[-1000, -1000, -1000, 1, 1, 1, 0]]
+                    label_boxes_3d = np.asarray(dummy_boxes)
+                else:
+                    label_anchors = np.zeros((1, 6))
+                    label_boxes_3d = np.zeros((1, 7))
+                    label_classes = np.zeros(1)
+            else:
+                label_anchors = box_3d_encoder.box_3d_to_anchor(label_boxes_3d, ortho_rotate=True)
+                
+    return anchors_info, obj_classes, label_classes, label_anchors, label_boxes_3d
+    
+def get_anchors_info(dataset, classes_name, sample_name):
+    
+        config = Config()
+        mini_batch_utils = MiniBatchUtils(dataset)
+        anchors_info = mini_batch_utils.get_anchors_info(classes_name, config.anchor_strides, sample_name)
+        return anchors_info
+def class_str_to_index(class_str):
+        """
+        Converts an object class type string into a integer index
+
+        Args:
+            class_str: the object type (e.g. 'Car', 'Pedestrian', or 'Cyclist')
+
+        Returns:
+            The corresponding integer index for a class type, starting at 1
+            (0 is reserved for the background class).
+            Returns -1 if we don't care about that class type.
+        """
+        clss=["car", "pedestrian", "bus"]
+        if class_str in clss:
+            return clss.index(class_str) + 1
+
+    

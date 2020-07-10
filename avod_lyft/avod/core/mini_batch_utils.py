@@ -25,7 +25,7 @@ class MiniBatchUtils:
         pipeline_config=config_build.get_configs_from_pipeline_file(config_path, "val")
         self.kitti_utils_config = pipeline_config[3].kitti_utils_config
         self._area_extents = self.kitti_utils_config.area_extents
-        self._anchor_strides = np.reshape(self.kitti_utils_config.anchor_strides, (-1, 2))
+        self._anchor_strides = np.array([0.5, 0.5])
 
         ##############################
         # Parse MiniBatchUtils config
@@ -111,8 +111,8 @@ class MiniBatchUtils:
         anchor_strides_str = ' '.join(str(stride) for stride in anchor_strides)
 
         if sample_name:
-            return self.mini_batch_dir + '/' + classes_name + \
-                '[ ' + anchor_strides_str + ']/' + \
+            return self.mini_batch_dir + '/' + "car" + \
+                '[ ' + "0.5" + ']/' + \
                 sample_name + ".npy"
 
         return self.mini_batch_dir + '/' + classes_name + \

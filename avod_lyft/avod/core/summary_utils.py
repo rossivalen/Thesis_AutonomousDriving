@@ -106,6 +106,6 @@ def summaries_to_keep(summaries,
                 summaries.remove(summary)
 
     # Merge all summaries together.
-    summary_op = tf.summary.merge(list(summaries), name='summary_op')
+    summary_op = tf.compat.v1.summary.merge(list(summaries), name='summary_op')
 
     return summary_op

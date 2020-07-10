@@ -97,12 +97,14 @@ def tile_anchors_3d(area_extents,
     # Fill in x, y, z
     all_anchor_boxes_3d[:, 0:3] = np.stack((all_x, all_y, all_z), axis=1)
 
-    # Fill in shapes
-    sizes = anchor_3d_sizes[np.asarray(before_sub[:, 2], np.int32)]
-    all_anchor_boxes_3d[:, 3:6] = sizes
-
     # Fill in rotations
     rotations = anchor_rotations[np.asarray(before_sub[:, 3], np.int32)]
     all_anchor_boxes_3d[:, 6] = rotations
+    
+    # Fill in shapes
+    sizes = anchor_3d_sizes[np.asarray(before_sub[:, 2], np.int32)]
+    #print(sizes.shape, all_anchor_boxes_3d.shape, anchor_3d_sizes.shape)
+    all_anchor_boxes_3d[:, 3:6] = sizes
 
+    
     return all_anchor_boxes_3d

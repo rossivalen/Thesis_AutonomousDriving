@@ -80,7 +80,7 @@ def get_empty_anchor_filter_2d(anchors, voxel_grid_2d, density_threshold=1):
     anchors_2d = anchors[:, [0, 2, 3, 5]]
 
     # Get Integral image of the voxel, add 1 since filled = 0, empty is -1
-    leaf_layout = voxel_grid_2d.leaf_layout_2d + 1
+    leaf_layout = voxel_grid_2d.leaf_layout_2d +1
     leaf_layout = np.squeeze(leaf_layout)
     integral_image = IntegralImage2D(leaf_layout)
 

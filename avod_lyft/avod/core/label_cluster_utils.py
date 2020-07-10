@@ -37,7 +37,7 @@ class LabelClusterUtils:
 
         for obj_label in obj_labels:
             if obj_label.cls in classes:
-                class_idx = classes.index(obj_label.type)
+                class_idx = classes.index(obj_label.cls)
 
                 # l, w, h
                 obj_l = obj_label.l
@@ -153,32 +153,34 @@ class LabelClusterUtils:
             all_std_devs: list of cluster standard deviations for each class
         """
 
-        classes=["car", "pedestrian", "bus"]
-        num_clusters = [2, 1, 1]
-        
+        classes=[]
+        for i in dataset.category:
+            classes.append(i.get("name"))
+        num_clusters = [2, 1, 2, 2, 1, 2, 1, 1, 1]
+       
         all_clusters = [[] for _ in range(len(classes))]
         all_std_devs = [[] for _ in range(len(classes))]
 
         classes_not_loaded = []
         scene_idx = 5
         for class_idx in range(len(classes)):
-            clusters, std_devs = self._read_clusters_from_file(classes[class_idx], num_clusters[class_idx])
+            #clusters, std_devs = self._read_clusters_from_file(classes[class_idx], num_clusters[class_idx])
 
-            if clusters is not None:
-                all_clusters[class_idx].extend(np.asarray(clusters))
-                all_std_devs[class_idx].extend(np.asarray(std_devs))
-            else:
-                classes_not_loaded.append(class_idx)
-
+            #if clusters is not None:
+                #all_clusters[class_idx].extend(np.asarray(clusters))
+                #all_std_devs[class_idx].extend(np.asarray(std_devs))
+            #else:
+            classes_not_loaded.append(class_idx)
+        
         # Return the data flattened into N x 3 arrays
         if len(classes_not_loaded) == 0:
             return all_clusters, all_std_devs
         
         # Calculate the remaining clusters
         # Load labels corresponding to the sample list for clustering
-        self.sample_list = preproc_helper.load_sample_names(scene_idx, dataset, all_scenes=False)  
+        self.sample_list = preproc_helper.load_sample_names(scene_idx, dataset, all_scenes=False)
         all_labels = [[] for _ in range(len(classes))]
-
+        
         num_samples = len(self.sample_list)
         for sample_idx in range(num_samples):
             
@@ -192,7 +194,7 @@ class LabelClusterUtils:
             dataset_dir = os.path.expanduser(directory)
             self.label_dir = dataset_dir + '/training/label_' + str(img_idx)
             
-            obj_labels = preproc_helper.read_labels(label_dir, sample_name, dataset)
+            obj_labels = preproc_helper.read_labels(sample_name, dataset)
             
             filtered = [[] for _ in range(len(classes))]
 
@@ -210,7 +212,7 @@ class LabelClusterUtils:
             
             for class_idx in range(len(classes)):
                 all_labels[class_idx].extend(filtered_labels[class_idx])
-         
+        
         print("\nFinished reading labels, clustering data...\n")
 
         # Cluster
@@ -218,39 +220,42 @@ class LabelClusterUtils:
             labels_for_class = np.array(all_labels[class_idx])
             n_clusters_for_class = num_clusters[class_idx]
             if len(labels_for_class) < n_clusters_for_class:
-                raise ValueError(
-                    "Number of samples is less than number of clusters "
-                    "{} < {}".format(len(labels_for_class), n_clusters_for_class))
+                #not all scenes have all categories
+                clusters_for_class = []
+                std_devs_for_class = []
+                all_clusters[class_idx].extend(np.asarray(clusters_for_class))
+                all_std_devs[class_idx].extend(np.asarray(std_devs_for_class))
+                
+            else:   
+                k_means = KMeans(n_clusters=n_clusters_for_class, random_state=0).fit(labels_for_class)
 
-            k_means = KMeans(n_clusters=n_clusters_for_class, random_state=0).fit(labels_for_class)
+                clusters_for_class = []
+                std_devs_for_class = []
 
-            clusters_for_class = []
-            std_devs_for_class = []
-            
-            for cluster_idx in range(len(k_means.cluster_centers_)):
-                cluster_centre = k_means.cluster_centers_[cluster_idx]
+                for cluster_idx in range(len(k_means.cluster_centers_)):
+                    cluster_centre = k_means.cluster_centers_[cluster_idx]
 
-                labels_in_cluster = labels_for_class[k_means.labels_ == cluster_idx]
+                    labels_in_cluster = labels_for_class[k_means.labels_ == cluster_idx]
 
-                # Calculate std. dev
-                std_dev = np.std(labels_in_cluster, axis=0)
+                    # Calculate std. dev
+                    std_dev = np.std(labels_in_cluster, axis=0)
 
-                formatted_cluster = [float('%.3f' % value)
-                                     for value in cluster_centre]
-                formatted_std_dev = [float('%.3f' % value)
-                                     for value in std_dev]
+                    formatted_cluster = [float('%.3f' % value)
+                                         for value in cluster_centre]
+                    formatted_std_dev = [float('%.3f' % value)
+                                         for value in std_dev]
 
-                clusters_for_class.append(formatted_cluster)
-                std_devs_for_class.append(formatted_std_dev)
-            
-            # Write to files
-            file_path = self._get_cluster_file_path( classes[class_idx], num_clusters[class_idx])
+                    clusters_for_class.append(formatted_cluster)
+                    std_devs_for_class.append(formatted_std_dev)
 
-            self._write_clusters_to_file(file_path, clusters_for_class, std_devs_for_class)
-            
-            # Add to full list
-            all_clusters[class_idx].extend(np.asarray(clusters_for_class))
-            all_std_devs[class_idx].extend(np.asarray(std_devs_for_class))
+                # Write to files
+                file_path = self._get_cluster_file_path( classes[class_idx], num_clusters[class_idx])
 
+                self._write_clusters_to_file(file_path, clusters_for_class, std_devs_for_class)
+
+                # Add to full list
+                all_clusters[class_idx].extend(np.asarray(clusters_for_class))
+                all_std_devs[class_idx].extend(np.asarray(std_devs_for_class))
+        print("\nFinished \n", len(all_clusters))
         # Return the data flattened into N x 3 arrays
         return all_clusters, all_std_devs

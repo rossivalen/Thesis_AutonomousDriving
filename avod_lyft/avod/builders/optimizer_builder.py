@@ -43,43 +43,25 @@ def build(optimizer_config,
 
     if optimizer_type == 'rms_prop_optimizer':
         config = optimizer_config.rms_prop_optimizer
-        optimizer = tf.train.RMSPropOptimizer(
-            _create_learning_rate(config.learning_rate,
-                                  global_summaries,
-                                  global_step),
-            decay=config.decay,
-            momentum=config.momentum_optimizer_value,
-            epsilon=config.epsilon)
-
-    elif optimizer_type == 'momentum_optimizer':
-        config = optimizer_config.momentum_optimizer
-        optimizer = tf.train.MomentumOptimizer(
-            _create_learning_rate(config.learning_rate,
-                                  global_summaries,
-                                  global_step),
-            momentum=config.momentum_optimizer_value)
+        learning_rate=_create_learning_rate(config.learning_rate, global_summaries, global_step),
+        optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate, decay=config.decay, 
+                                                momentum=config.momentum_optimizer_value, epsilon=config.epsilon)
 
     elif optimizer_type == 'adam_optimizer':
         config = optimizer_config.adam_optimizer
-        optimizer = tf.train.AdamOptimizer(
-            _create_learning_rate(config.learning_rate,
-                                  global_summaries,
-                                  global_step))
+        learning_rate = _create_learning_rate(config.learning_rate, global_summaries, global_step)
+        #optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+        optimizer = tf.compat.v1.train.AdamOptimizer(_create_learning_rate(config.learning_rate, global_summaries, global_step))
+        
+            
 
     elif optimizer_type == 'gradient_descent':
         config = optimizer_config.gradient_descent
-        optimizer = tf.train.GradientDescentOptimizer(
-            _create_learning_rate(config.learning_rate,
-                                  global_summaries,
-                                  global_step))
+        learning_rate = _create_learning_rate(config.learning_rate, global_summaries, global_step)
+        optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate)
 
     if optimizer is None:
         raise ValueError('Optimizer %s not supported.' % optimizer_type)
-
-    if optimizer_config.use_moving_average:
-        #optimizer = tf.contrib.opt.MovingAverageOptimizer(
-        optimizer = tf.keras.optimizer.MovingAverageOptimizer(
-            optimizer, average_decay=optimizer_config.moving_average_decay)
 
     return optimizer
 
@@ -108,12 +90,8 @@ def _create_learning_rate(learning_rate_config,
 
     elif learning_rate_type == 'exponential_decay_learning_rate':
         config = learning_rate_config.exponential_decay_learning_rate
-        learning_rate = tf.train.exponential_decay(
-            config.initial_learning_rate,
-            global_step,
-            config.decay_steps,
-            config.decay_factor,
-            staircase=config.staircase)
+        learning_rate = tf.train.exponential_decay(config.initial_learning_rate, global_step, 
+                                                   config.decay_steps, config.decay_factor, staircase=config.staircase)
 
     if learning_rate is None:
         raise ValueError('Learning_rate %s not supported.' % learning_rate_type)

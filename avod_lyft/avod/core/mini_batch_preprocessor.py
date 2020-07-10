@@ -4,6 +4,10 @@ import os
 
 from PIL import Image
 
+from lyft_dataset_sdk.lyftdataset import LyftDataset
+from lyft_dataset_sdk.utils.data_classes import LidarPointCloud, Box, Quaternion
+from lyft_dataset_sdk.utils.geometry_utils import view_points, transform_matrix
+
 from wavedata.tools.obj_detection import evaluation
 from wavedata.tools.obj_detection import obj_utils
 from wavedata.tools.core.voxel_grid_2d import VoxelGrid2D
@@ -15,9 +19,13 @@ from avod.core import box_3d_encoder, anchor_projector
 from avod.core import anchor_encoder
 from avod.core import anchor_filter
 from avod.core.anchor_generators import grid_anchor_3d_generator
+from avod.core.label_cluster_utils import LabelClusterUtils
 import avod.builders.config_builder_util as config_build
 
-from avod.core.label_cluster_utils import LabelClusterUtils
+import preproc_helper
+import bev_helper
+import frame_helper
+
 
 class MiniBatchPreprocessor(object):
     def __init__(self,
@@ -47,16 +55,24 @@ class MiniBatchPreprocessor(object):
         config_path = 'avod/configs/unittest_pipeline.config'
         pipeline_config=config_build.get_configs_from_pipeline_file(config_path, "val")
         self.config = pipeline_config[3].kitti_utils_config
-        self.area_extents = np.reshape(self.config.area_extents, (3, 2))
+        self._area_extents = np.reshape(self.config.area_extents, (3, 2))
+        self.bev_extents = self._area_extents[[0, 2]]
         self._anchor_strides = anchor_strides
+        self.voxel_size = self.config.voxel_size
 
         self._density_threshold = density_threshold
         self._negative_iou_range = neg_iou_3d_range
         self._positive_iou_range = pos_iou_3d_range
+        
+        self.col_length = 9
+        self.col_anchor_indices = 0
+        self.col_ious = 1
+        self.col_offsets_lo = 2
+        self.col_offsets_hi = 8
+        self.col_class_idx = 8
 
     def _calculate_anchors_info(self,
                                 all_anchor_boxes_3d,
-                                empty_anchor_filter,
                                 gt_labels):
         """Calculates the list of anchor information in the format:
             N x 8 [max_gt_2d_iou, max_gt_3d_iou, (6 x offsets), class_index]
@@ -78,27 +94,25 @@ class MiniBatchPreprocessor(object):
         # Check for ground truth objects
         if len(gt_labels) == 0:
             raise Warning("No valid ground truth label to generate anchors.")
-
+     
         # Filter empty anchors
-        anchor_indices = np.where(empty_anchor_filter)[0]
-        anchor_boxes_3d = all_anchor_boxes_3d[empty_anchor_filter]
+        #anchor_indices = np.where(empty_anchor_filter)[0]
+        anchor_boxes_3d = all_anchor_boxes_3d
 
         # Convert anchor_boxes_3d to anchor format
         anchors = box_3d_encoder.box_3d_to_anchor(anchor_boxes_3d)
 
         # Convert gt to boxes_3d -> anchors -> iou format
-        gt_boxes_3d = np.asarray(
-            [box_3d_encoder.object_label_to_box_3d(gt_obj)
-             for gt_obj in gt_labels])
+        gt_boxes_3d = np.asarray( [box_3d_encoder.object_label_to_box_3d(gt_obj) for gt_obj in gt_labels])
         gt_anchors = box_3d_encoder.box_3d_to_anchor(gt_boxes_3d,
                                                      ortho_rotate=True)
 
-        rpn_iou_type = self.mini_batch_utils.rpn_iou_type
+        rpn_iou_type = "2d"
         if rpn_iou_type == '2d':
             # Convert anchors to 2d iou format
-            anchors_for_2d_iou, _ = np.asarray(anchor_projector.project_to_bev( anchors, kitti_utils.bev_extents))
+            anchors_for_2d_iou, _ = np.asarray(anchor_projector.project_to_bev( anchors, self.bev_extents))
 
-            gt_boxes_for_2d_iou, _ = anchor_projector.project_to_bev(gt_anchors, kitti_utils.bev_extents)
+            gt_boxes_for_2d_iou, _ = anchor_projector.project_to_bev(gt_anchors,self.bev_extents)
 
         elif rpn_iou_type == '3d':
             # Convert anchors to 3d iou format for calculation
@@ -108,13 +122,13 @@ class MiniBatchPreprocessor(object):
                 box_3d_encoder.box_3d_to_3d_iou_format(gt_boxes_3d)
         else:
             raise ValueError('Invalid rpn_iou_type {}', rpn_iou_type)
-
+       
         # Initialize sample and offset lists
         num_anchors = len(anchor_boxes_3d)
-        all_info = np.zeros((num_anchors, self.mini_batch_utils.col_length))
+        all_info = np.zeros((num_anchors, self.col_length))
 
         # Update anchor indices
-        all_info[:, self.mini_batch_utils.col_anchor_indices] = anchor_indices
+        #all_info[:, self.mini_batch_utils.col_anchor_indices] = anchor_indices
 
         # For each of the labels, generate samples
         for gt_idx in range(len(gt_labels)):
@@ -123,16 +137,16 @@ class MiniBatchPreprocessor(object):
             gt_box_3d = gt_boxes_3d[gt_idx]
 
             # Get 2D or 3D IoU for every anchor
-            if self.mini_batch_utils.rpn_iou_type == '2d':
+            if rpn_iou_type == '2d':
                 gt_box_for_2d_iou = gt_boxes_for_2d_iou[gt_idx]
                 ious = evaluation.two_d_iou(gt_box_for_2d_iou, anchors_for_2d_iou)
-            elif self.mini_batch_utils.rpn_iou_type == '3d':
+            elif rpn_iou_type == '3d':
                 gt_box_for_3d_iou = gt_boxes_for_3d_iou[gt_idx]
                 ious = evaluation.three_d_iou(gt_box_for_3d_iou, anchors_for_3d_iou)
 
             # Only update indices with a higher iou than before
-            update_indices = np.greater( ious, all_info[:, self.mini_batch_utils.col_ious])
-
+            update_indices = np.greater( ious, all_info[:, self.col_ious])
+         
             # Get ious to update
             ious_to_update = ious[update_indices]
 
@@ -142,14 +156,14 @@ class MiniBatchPreprocessor(object):
             offsets = anchor_encoder.anchor_to_offset(anchors_to_update, gt_anchor)
 
             # Convert gt type to index
-            class_idx = kitti_utils.class_str_to_index(gt_obj.type)
+            class_idx = self.class_str_to_index(gt_obj.cls)
 
             # Update anchors info (indices already updated)
             # [index, iou, (offsets), class_index]
-            all_info[update_indices, self.mini_batch_utils.col_ious] = ious_to_update
+            all_info[update_indices, self.col_ious] = ious_to_update
 
-            all_info[update_indices, self.mini_batch_utils.col_offsets_lo: self.mini_batch_utils.col_offsets_hi] = offsets
-            all_info[update_indices, self.mini_batch_utils.col_class_idx] = class_idx
+            all_info[update_indices, self.col_offsets_lo: self.col_offsets_hi] = offsets
+            all_info[update_indices, self.col_class_idx] = class_idx
 
         return all_info
 
@@ -163,116 +177,104 @@ class MiniBatchPreprocessor(object):
         # Get anchor stride for class
         anchor_strides = self._anchor_strides
         dataset = self.dataset
-        classes_name = ["car", "pedestrian", "bus"]
-
+        classes_all=[]
+        for i in self.dataset.category:
+            classes_all.append(i.get("name"))
+        
         # Make folder if it doesn't exist yet
-        for i in classes_name:
+        for i in classes_all:
             output_dir = self.get_file_path(i, anchor_strides, sample_name=None)
             os.makedirs(output_dir, exist_ok=True)
 
         # Get clusters for class
         label_cluster_utils = LabelClusterUtils(dataset)
         all_clusters_sizes, _ = label_cluster_utils.get_clusters(5, dataset)
-
-        anchor_generator = grid_anchor_3d_generator.GridAnchor3dGenerator()     #check
+        
+        anchor_generator = grid_anchor_3d_generator.GridAnchor3dGenerator()    
 
         # Load indices of data_split
         all_samples = label_cluster_utils.sample_list
-
+        
         if indices is None:
             indices = np.array(all_samples)
         num_samples = len(indices)
-
-        # For each image in the dataset, save info on the anchors
         for sample_idx in indices:
+            # For each image in the dataset, save info on the anchors
+            
+            
             # recall that sample_idx is the token that gets you the sample_data
-        
+
             # Check for existing files and skip to the next
-            if self._check_for_existing(classes_name, anchor_strides, sample_idx):
-                print("{} / {}: Sample already preprocessed".format(sample_idx, num_samples, sample_name))
-                continue
+    #             if self._check_for_existing(classes_name, anchor_strides, sample_idx):
+    #                 print("{} / {}: Sample already preprocessed".format(sample_idx, num_samples, sample_name))
+    #                 continue
 
             # Get ground truth and filter based on difficulty
-            ground_truth_list = preproc_helper.read_labels(label_cluster_utils.label_dir, img_idx)
+            ground_truth_list = preproc_helper.read_labels(sample_idx, dataset)
 
             # Filter objects to dataset classes
-            filtered_gt_list = self.filter_labels(ground_truth_list)
-            filtered_gt_list = np.asarray(filtered_gt_list)
-
-            # Filtering by class has no valid ground truth, skip this image
-            if len(filtered_gt_list) == 0:
-                print("{} / {} No {}s for sample {} "
-                      "(Ground Truth Filter)".format(sample_idx, num_samples, classes_name, sample_name))
-
-                # Output an empty file and move on to the next image.
-                self._save_to_file(classes_name, anchor_strides, sample_name)
-                continue
+            #filtered_gt_list = self.filter_labels(ground_truth_list, classes=False)
+            #filtered_gt_list = np.asarray(filtered_gt_list)
 
             # Get ground plane maybe move all the gets in getroadplane
             sample_data = dataset.get("sample", sample_idx)
-            
+
             cam_front_token = dataset.get('sample_data', sample_data["data"]["CAM_FRONT"])
             cam_front_data = cam_front_token.get("calibrated_sensor_token")
             cam_front_calib = dataset.get("calibrated_sensor", cam_front_data )
             cam_front_coords = cam_front_calib.get("translation")
-            
+
             cam_front_right_token = dataset.get('sample_data', sample_data["data"]["CAM_FRONT_RIGHT"])
             cam_front_right_data = cam_front_right_token.get("calibrated_sensor_token")
             cam_front_right_calib = dataset.get("calibrated_sensor", cam_front_right_data )
             cam_front_right_coords = cam_front_right_calib.get("translation")
-            
-            cam_front_left_token = dataset.get('sample_data', sample_data["data"]["CAM_LEFT_RIGHT"])
+
+            cam_front_left_token = dataset.get('sample_data', sample_data["data"]["CAM_FRONT_LEFT"])
             cam_front_left_data = cam_front_left_token.get("calibrated_sensor_token")
             cam_front_left_calib = dataset.get("calibrated_sensor", cam_front_left_data )
             cam_front_left_coords = cam_front_left_calib.get("translation")
-            
-            ground_plane = frame_helper.get_ground_plane_coefficients(cam_front_coords, cam_front_left_coords, cam_front_right_coords)
-            
-            image = Image.open(file_name=dataset.get_sample_data_path(cam_front_token))
+
+            ground_plane = frame_helper.get_ground_plane_coeff(cam_front_coords, cam_front_left_coords, cam_front_right_coords)
+
+            camera_token=cam_front_token.get("token")
+            image = Image.open(dataset.get_sample_data_path(camera_token))
             image_shape = [image.size[1], image.size[0]]
 
-            # Generate sliced 2D voxel grid for filtering HERE 
+            # Generate sliced 2D voxel grid for filtering 
             sample_lidar_name = sample_data["data"]["LIDAR_TOP"]
-            vx_grid_2d = self.create_sliced_voxel_grid_2d(sample_lidar_name, ground_plane, dataset, 
-                                                                   source="lidar", image_shape=image_shape)
+            vx_grid_2d = self.create_sliced_voxel_grid_2d(sample_lidar_name, cam_front_data, ground_plane, dataset, 
+                                                                    source="lidar", image_shape=image_shape)
 
             # List for merging all anchors
             all_anchor_boxes_3d = []
 
             # Create anchors for each class
-            for class_idx in range(len(dataset.classes)):
-                # Generate anchors for all classes
-                grid_anchor_boxes_3d = anchor_generator.generate(
-                    area_3d=self._area_extents,
-                    anchor_3d_sizes=all_clusters_sizes[class_idx],
-                    anchor_stride=self._anchor_strides[class_idx],
-                    ground_plane=ground_plane)
+            for class_idx in range(len(classes_all)):
 
-                all_anchor_boxes_3d.extend(grid_anchor_boxes_3d)
+                if all_clusters_sizes[class_idx]==[]:
+                    continue
+                else:
+                    # Generate anchors for all classes
+                    grid_anchor_boxes_3d = anchor_generator.generate(
+                        area_3d=self._area_extents,
+                        anchor_3d_sizes=all_clusters_sizes[class_idx],
+                        anchor_stride=self._anchor_strides,
+                        ground_plane=ground_plane)
 
-            # Filter empty anchors
-            all_anchor_boxes_3d = np.asarray(all_anchor_boxes_3d)
-            anchors = box_3d_encoder.box_3d_to_anchor(all_anchor_boxes_3d)
-            empty_anchor_filter = anchor_filter.get_empty_anchor_filter_2d(anchors, vx_grid_2d, self._density_threshold)
+                    all_anchor_boxes_3d.extend(grid_anchor_boxes_3d)
 
-            # Calculate anchor info
-            anchors_info = self._calculate_anchors_info( all_anchor_boxes_3d, empty_anchor_filter, filtered_gt_list)
+                    # Filter empty anchors
+                    all_anchor_boxes_3d_np = np.asarray(all_anchor_boxes_3d)
+                    anchors = box_3d_encoder.box_3d_to_anchor(all_anchor_boxes_3d_np)
+                    empty_anchor_filter = anchor_filter.get_empty_anchor_filter_2d(anchors, vx_grid_2d, self._density_threshold)
 
-            anchor_ious = anchors_info[:, self.mini_batch_utils.col_ious]
+                    # Calculate anchor info
+                    anchors_info = self._calculate_anchors_info( all_anchor_boxes_3d_np, ground_truth_list)
+                    anchor_ious = anchors_info[:, self.col_ious]
 
-            valid_iou_indices = np.where(anchor_ious > 0.0)[0]
-
-            print("{} / {}:"
-                  "{:>6} anchors, "
-                  "{:>6} iou > 0.0, "
-                  "for {:>3} {}(s) for sample {}".format(
-                      sample_idx + 1, num_samples,
-                      len(anchors_info),
-                      len(valid_iou_indices),
-                      len(filtered_gt_list), classes_name, sample_name ))
-
-            # Save anchors info
-            self._save_to_file(classes_name, anchor_strides, sample_name, anchors_info)
+                    valid_iou_indices = np.where(anchor_ious > 0.0)[0]
+                    # Save anchors info
+                    self._save_to_file(classes_all[class_idx], anchor_strides, sample_idx, anchors_info)
 
     def _check_for_existing(self, classes_name, anchor_strides, sample_name):
         """
@@ -288,9 +290,7 @@ class MiniBatchPreprocessor(object):
             True if the anchors info file already exists
         """
 
-        file_name = self.mini_batch_utils.get_file_path(classes_name,
-                                                        anchor_strides,
-                                                        sample_name)
+        file_name = self.get_file_path(classes_name, anchor_strides, sample_name)
         if os.path.exists(file_name):
             return True
 
@@ -311,41 +311,69 @@ class MiniBatchPreprocessor(object):
                 an empty array
         """
 
-        file_name = self.mini_batch_utils.get_file_path(classes_name,
-                                                        anchor_strides,
-                                                        sample_name)
+        file_name = self.get_file_path(classes_name, anchor_strides, sample_name)
 
         # Save to npy file
         anchors_info = np.asarray(anchors_info, dtype=np.float32)
         np.save(file_name, anchors_info)
 
-    def create_sliced_voxel_grid_2d(self, sample_lidar_name, ground_plane, dataset, source, image_shape=None):
+    def create_sliced_voxel_grid_2d(self, sample_lidar_token, sample_cam_token, ground_plane, dataset, source, image_shape=None):
         """Generates a filtered 2D voxel grid from point cloud data
 
         Args:
-            sample_name: image name to generate stereo pointcloud from
+            sample_lidar_token: token to generate stereo pointcloud from
+            sample_cam_token: token to get the image corresponding to the lidar
             source: point cloud source, e.g. 'lidar'
-            image_shape: image dimensions [h, w], only required when
-                source is 'lidar' or 'depth'
+            ground_plane: image ground plane coefficients
+            dataset: dataset
+            image_shape: image dimensions [h, w], only required when source is 'lidar' or 'depth'
 
         Returns:
             voxel_grid_2d: 3d voxel grid from the given image
         """
-        img_idx = int(sample_name)
         
         lidar_data = dataset.get("sample_data", sample_lidar_token)
         lidar_filepath = dataset.get_sample_data_path(sample_lidar_token)
-        pointcloud = LidarPointCloud.from_file(lidar_filepath)
+        point_cloud = LidarPointCloud.from_file(lidar_filepath)
+        calibrated_sensor = dataset.get("calibrated_sensor", lidar_data["calibrated_sensor_token"])
+        car_from_sensor = transform_matrix(calibrated_sensor['translation'], Quaternion(calibrated_sensor['rotation']), inverse=False)
+        point_cloud.transform(car_from_sensor)
+        
+        points=point_cloud.points
+        
+        #copy Avod's way to build the pointcloud
+        points=np.vstack([points[1], points[0], points[2]]).T
+        frame_calib=frame_helper.read_calibration(sample_cam_token, dataset)
+        
+        if not image_shape:
+            point_cloud = points.T
+            return point_cloud
+
+        else:
+            # Only keep points in front of camera (positive z)
+            points = points[points[:, 2] > 0]
+            point_cloud = points.T
+
+            # Project to image frame
+            point_in_im = frame_helper.project_to_image(point_cloud, p=frame_calib.cam_matrix).T
+
+            # Filter based on the given image size
+            image_filter = (point_in_im[:, 0] > 0) & \
+                           (point_in_im[:, 0] < image_shape[0]) & \
+                           (point_in_im[:, 1] > 0) & \
+                           (point_in_im[:, 1] < image_shape[1])
+
         
         #MOVE THE FUNCTIONS FROM OBJ UTILS TO FRAME_HELPER
         filtered_points = self._apply_slice_filter(point_cloud, ground_plane)
 
         # Create Voxel Grid 
         voxel_grid_2d = VoxelGrid2D()
-        voxel_grid_2d.voxelize_2d(filtered_points, self.voxel_size,
-                                  extents=self.area_extents,
+        voxel_grid_2d.voxelize_2d(point_cloud, 0.1,
+                                  extents=None,
                                   ground_plane=ground_plane,
                                   create_leaf_layout=True)
+
 
         return voxel_grid_2d
     
@@ -364,7 +392,7 @@ class MiniBatchPreprocessor(object):
         """
 
         slice_filter = self.create_slice_filter(point_cloud,
-                                                self.area_extents,
+                                                self._area_extents,
                                                 ground_plane,
                                                 height_lo, height_hi)
 
@@ -374,6 +402,7 @@ class MiniBatchPreprocessor(object):
         filtered_points = points[slice_filter]
 
         return filtered_points
+    
     def create_slice_filter(self, point_cloud, area_extents,
                             ground_plane, ground_offset_dist, offset_dist):
         """ Creates a slice filter to take a slice of the point cloud between
@@ -393,13 +422,10 @@ class MiniBatchPreprocessor(object):
         """
         #MOVE THESE GETPOINT INTO YOUR FRAME_HELPER
         # Filter points within certain xyz range and offset from ground plane
-        offset_filter = obj_utils.get_point_filter(point_cloud, area_extents,
-                                                   ground_plane, offset_dist)
+        offset_filter = frame_helper.get_point_filter(point_cloud, area_extents, ground_plane, offset_dist)
 
         # Filter points within 0.2m of the road plane
-        road_filter = obj_utils.get_point_filter(point_cloud, area_extents,
-                                                 ground_plane,
-                                                 ground_offset_dist)
+        road_filter = frame_helper.get_point_filter(point_cloud, area_extents, ground_plane, ground_offset_dist)
 
         slice_filter = np.logical_xor(offset_filter, road_filter)
         return slice_filter
@@ -426,7 +452,7 @@ class MiniBatchPreprocessor(object):
             classes=[]
             for i in cat:
                 classes.append(i.get("name"))
-
+            
         objects = np.asanyarray(objects)
         filter_mask = np.ones(len(objects), dtype=np.bool)
 
@@ -462,10 +488,24 @@ class MiniBatchPreprocessor(object):
             The anchors info file path. Returns the folder if
                 sample_name is None
         """
-        # Round values for nicer folder names
-        anchor_strides = np.round(anchor_strides[:, 0], 3)
-
-        anchor_strides_str = ' '.join(str(stride) for stride in anchor_strides)
-
+        sample_name=str(sample_name)
         return self.mini_batch_dir + '/' + classes_name + \
-            '[ ' + "0.5" + ']'
+            '[ ' + "0.5" + ']'+ "/" +  sample_name + ".npy"
+    
+    def class_str_to_index(self, class_str):
+        """
+        Converts an object class type string into a integer index
+
+        Args:
+            class_str: the object type (e.g. 'Car', 'Pedestrian', or 'Cyclist')
+
+        Returns:
+            The corresponding integer index for a class type, starting at 1
+            (0 is reserved for the background class).
+            Returns -1 if we don't care about that class type.
+        """
+        classes=[]
+        for i in self.dataset.category:
+            classes.append(i.get("name"))
+        if class_str in classes:
+            return classes.index(class_str) + 1
