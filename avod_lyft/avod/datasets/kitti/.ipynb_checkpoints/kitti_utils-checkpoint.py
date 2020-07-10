@@ -9,7 +9,7 @@ from wavedata.tools.obj_detection import obj_utils
 from avod.builders import bev_generator_builder
 from avod.core.label_cluster_utils import LabelClusterUtils
 from avod.core.mini_batch_utils import MiniBatchUtils
-
+import avod.builders.config_builder_util as config_build
 
 class KittiUtils(object):
     # Definition for difficulty levels
@@ -19,7 +19,7 @@ class KittiUtils(object):
     OCCLUSION = (0, 1, 2)
     TRUNCATION = (0.15, 0.3, 0.5)
 
-    def __init__(self, dataset):
+    def __init__(self, dataset, dst):
 
         self.dataset = dataset
 
@@ -29,19 +29,21 @@ class KittiUtils(object):
         self.clusters, self.std_devs = [None, None]
 
         # BEV source from dataset config
-        self.bev_source = self.dataset.bev_source
+        self.bev_source = "lidar"
 
         # Parse config
-        self.config = dataset.config.kitti_utils_config
+        config_path = 'avod/configs/unittest_pipeline.config'
+        pipeline_config=config_build.get_configs_from_pipeline_file(config_path, "val")
+        self.config = pipeline_config[3].kitti_utils_config
+        scene_idx = 128
         self.area_extents = np.reshape(self.config.area_extents, (3, 2))
         self.bev_extents = self.area_extents[[0, 2]]
         self.voxel_size = self.config.voxel_size
         self.anchor_strides = np.reshape(self.config.anchor_strides, (-1, 2))
 
-        self.bev_generator = bev_generator_builder.build(
-            self.config.bev_generator, self)
+        #self.bev_generator = bev_generator_builder.build(self.config.bev_generator, self)
 
-        self._density_threshold = self.config.density_threshold
+        self._density_threshold = self.config.mini_batch_config.density_threshold
 
         # Check that depth maps folder exists
         if self.bev_source == 'depth' and \
@@ -55,8 +57,7 @@ class KittiUtils(object):
         self._mini_batch_dir = self.mini_batch_utils.mini_batch_dir
 
         # Label Clusters
-        self.clusters, self.std_devs = \
-            self.label_cluster_utils.get_clusters()
+        self.clusters, self.std_devs = self.label_cluster_utils.get_clusters(scene_idx, dst)
 
     def class_str_to_index(self, class_str):
         """
@@ -361,3 +362,13 @@ class KittiUtils(object):
             matches the desired class.
         """
         return obj.type in classes
+    
+    def __getattr__(self, name: str):
+        """Returns the attribute matching passed name."""
+        # Get internal dict value matching name.
+        value = self.__dict__.get(name)
+        if not value:
+            # Raise AttributeError if attribute value not found.
+            raise AttributeError(f'{self.__class__.__name__}.{name} is invalid.')
+        # Return attribute value.
+        return value

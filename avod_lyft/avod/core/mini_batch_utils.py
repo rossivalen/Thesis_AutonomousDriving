@@ -6,7 +6,9 @@ import tensorflow as tf
 import avod
 
 from avod.core.mini_batch_preprocessor import MiniBatchPreprocessor
+from avod.core.label_cluster_utils import LabelClusterUtils
 from avod.core.minibatch_samplers import balanced_positive_negative_sampler
+import avod.builders.config_builder_util as config_build
 
 
 class MiniBatchUtils:
@@ -14,16 +16,16 @@ class MiniBatchUtils:
 
         self._dataset = dataset
 
-        self._mini_batch_sampler = \
-            balanced_positive_negative_sampler.BalancedPositiveNegativeSampler()
+        self._mini_batch_sampler = balanced_positive_negative_sampler.BalancedPositiveNegativeSampler()
 
         ##############################
         # Parse KittiUtils config
         ##############################
-        self.kitti_utils_config = dataset.config.kitti_utils_config
+        config_path = 'avod/configs/unittest_pipeline.config'
+        pipeline_config=config_build.get_configs_from_pipeline_file(config_path, "val")
+        self.kitti_utils_config = pipeline_config[3].kitti_utils_config
         self._area_extents = self.kitti_utils_config.area_extents
-        self._anchor_strides = np.reshape(
-            self.kitti_utils_config.anchor_strides, (-1, 2))
+        self._anchor_strides = np.reshape(self.kitti_utils_config.anchor_strides, (-1, 2))
 
         ##############################
         # Parse MiniBatchUtils config
@@ -64,9 +66,7 @@ class MiniBatchUtils:
 
         # Setup paths
         self.mini_batch_dir = avod.root_dir() + '/data/mini_batches/' + \
-            'iou_{}/'.format(self.rpn_iou_type) + \
-            dataset.name + '/' + dataset.cluster_split + '/' + \
-            dataset.bev_source
+            'iou_{}/'.format(self.rpn_iou_type) +  "nuscenes" + '/' + "train" + '/' + "lidar"
 
         # Array column indices for saving to files
         self.col_length = 9
@@ -76,23 +76,19 @@ class MiniBatchUtils:
         self.col_offsets_hi = 8
         self.col_class_idx = 8
 
-    def preprocess_rpn_mini_batches(self, indices):
+    def preprocess_rpn_mini_batches(self, dataset, indices):
         """Generates rpn mini batch info for the kitti dataset
 
             Preprocesses data and saves data to files.
             Each file contains information that is used to feed
             to the network for RPN training.
         """
+        
+        label_cluster_utils = LabelClusterUtils(dataset)
+        clusters, _ = label_cluster_utils.get_clusters(5, dataset)
 
-        clusters, _ = self._dataset.get_cluster_info()
-
-        mini_batch_preprocessor = \
-            MiniBatchPreprocessor(self._dataset,
-                                  self.mini_batch_dir,
-                                  self._anchor_strides,
-                                  self._density_threshold,
-                                  self.rpn_neg_iou_range,
-                                  self.rpn_pos_iou_range)
+        mini_batch_preprocessor = MiniBatchPreprocessor(dataset, self.mini_batch_dir, self._anchor_strides, 
+                                                        self._density_threshold, self.rpn_neg_iou_range, self.rpn_pos_iou_range)
 
         mini_batch_preprocessor.preprocess(indices)
 
@@ -112,8 +108,7 @@ class MiniBatchUtils:
         # Round values for nicer folder names
         anchor_strides = np.round(anchor_strides[:, 0], 3)
 
-        anchor_strides_str = \
-            ' '.join(str(stride) for stride in anchor_strides)
+        anchor_strides_str = ' '.join(str(stride) for stride in anchor_strides)
 
         if sample_name:
             return self.mini_batch_dir + '/' + classes_name + \

@@ -144,14 +144,13 @@ class DatasetBuilder(object):
         """
 
     @staticmethod
-    def load_dataset_from_config(dataset_config_path):
+    def load_dataset_from_config(dataset_config_path, dts):
         dataset_config = kitti_dataset_pb2.KittiDatasetConfig()
         dataset_config = KittiDatasetConfig()
         with open(dataset_config_path, 'r') as f:
             text_format.Merge(f.read(), dataset_config)
 
-        return DatasetBuilder.build_kitti_dataset(dataset_config,
-                                                  use_defaults=False)
+        return DatasetBuilder.build_kitti_dataset(dataset_config, dataset=dts, use_defaults=False)
 
     @staticmethod
     def copy_config(cfg):
@@ -165,6 +164,7 @@ class DatasetBuilder(object):
 
     @staticmethod
     def build_kitti_dataset(base_cfg,
+                            dataset,
                             use_defaults=True,
                             new_cfg=None) -> KittiDataset:
         """Builds a KittiDataset object using the provided configurations
@@ -188,7 +188,7 @@ class DatasetBuilder(object):
             # Use new config values if provided
             cfg_copy.MergeFrom(new_cfg)
 
-        return KittiDataset(cfg_copy)
+        return KittiDataset(cfg_copy, dataset)
 
 
 def main():

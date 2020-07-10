@@ -7,6 +7,7 @@ import avod
 
 from avod.core.mini_batch_preprocessor import MiniBatchPreprocessor
 from avod.core.minibatch_samplers import balanced_positive_negative_sampler
+import avod.builders.config_builder_util as config_build
 
 
 class MiniBatchUtils:
@@ -14,16 +15,16 @@ class MiniBatchUtils:
 
         self._dataset = dataset
 
-        self._mini_batch_sampler = \
-            balanced_positive_negative_sampler.BalancedPositiveNegativeSampler()
+        self._mini_batch_sampler = balanced_positive_negative_sampler.BalancedPositiveNegativeSampler()
 
         ##############################
         # Parse KittiUtils config
         ##############################
-        self.kitti_utils_config = dataset.config.kitti_utils_config
+        config_path = 'avod/configs/unittest_pipeline.config'
+        pipeline_config=config_build.get_configs_from_pipeline_file(config_path, "val")
+        self.kitti_utils_config = pipeline_config[3].kitti_utils_config
         self._area_extents = self.kitti_utils_config.area_extents
-        self._anchor_strides = np.reshape(
-            self.kitti_utils_config.anchor_strides, (-1, 2))
+        self._anchor_strides = np.reshape(self.kitti_utils_config.anchor_strides, (-1, 2))
 
         ##############################
         # Parse MiniBatchUtils config
@@ -86,13 +87,8 @@ class MiniBatchUtils:
 
         clusters, _ = self._dataset.get_cluster_info()
 
-        mini_batch_preprocessor = \
-            MiniBatchPreprocessor(self._dataset,
-                                  self.mini_batch_dir,
-                                  self._anchor_strides,
-                                  self._density_threshold,
-                                  self.rpn_neg_iou_range,
-                                  self.rpn_pos_iou_range)
+        mini_batch_preprocessor = MiniBatchPreprocessor(self._dataset, self.mini_batch_dir, self._anchor_strides, 
+                                                        self._density_threshold, self.rpn_neg_iou_range, self.rpn_pos_iou_range)
 
         mini_batch_preprocessor.preprocess(indices)
 

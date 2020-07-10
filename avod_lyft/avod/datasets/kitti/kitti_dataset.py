@@ -23,7 +23,7 @@ class Sample:
 
 
 class KittiDataset:
-    def __init__(self, dataset_config):
+    def __init__(self, dataset_config, dataset):
         """
         Initializes directories, and loads the sample list
 
@@ -46,7 +46,7 @@ class KittiDataset:
         data_split_dir = self.config.data_split_dir
 
         self.has_labels = self.config.has_labels
-        self.cluster_split = self.config.cluster_split
+        self.cluster_split = "train"
 
         self.classes = list(self.config.classes)
         self.num_classes = len(self.classes)
@@ -65,70 +65,16 @@ class KittiDataset:
 
         self._set_up_classes_name()
 
-        # Check that paths and split are valid
-        self._check_dataset_dir()
-
-        # Get all files and folders in dataset directory
-        all_files = os.listdir(self.dataset_dir)
-
-        # Get possible data splits from txt files in dataset folder
-        possible_splits = []
-        for file_name in all_files:
-            if fnmatch.fnmatch(file_name, '*.txt'):
-                possible_splits.append(os.path.splitext(file_name)[0])
-        # This directory contains a readme.txt file, remove it from the list
-        if 'readme' in possible_splits:
-            possible_splits.remove('readme')
-
-        if self.data_split not in possible_splits:
-            raise ValueError("Invalid data split: {}, possible_splits: {}"
-                             .format(self.data_split, possible_splits))
-
-        # Check data_split_dir
-        # Get possible data split dirs from folder names in dataset folder
-        possible_split_dirs = []
-        for folder_name in all_files:
-            if os.path.isdir(self.dataset_dir + '/' + folder_name):
-                possible_split_dirs.append(folder_name)
-        if data_split_dir in possible_split_dirs:
-            split_dir = self.dataset_dir + '/' + data_split_dir
-            self._data_split_dir = split_dir
-        else:
-            raise ValueError(
-                "Invalid data split dir: {}, possible dirs".format(
-                    data_split_dir, possible_split_dirs))
-
         # Batch pointers
         self._index_in_epoch = 0
         self.epochs_completed = 0
 
         self._cam_idx = 2
 
-        # Initialize the sample list
-        loaded_sample_names = self.load_sample_names(self.data_split)
-
-        # Augment the sample list
-        aug_sample_list = []
-
-        # Loop through augmentation lengths e.g.
-        # 0: []
-        # 1: ['flip'], ['pca_jitter']
-        # 2: ['flip', 'pca_jitter']
-        for aug_idx in range(len(self.aug_list) + 1):
-            # Get all combinations
-            augmentations = list(itertools.combinations(self.aug_list,
-                                                        aug_idx))
-            for augmentation in augmentations:
-                for sample_name in loaded_sample_names:
-                    aug_sample_list.append(Sample(sample_name, augmentation))
-
-        self.sample_list = np.asarray(aug_sample_list)
-        self.num_samples = len(self.sample_list)
-
-        self._set_up_directories()
-
+        # Initialize the sample list : here not needed, done in rpn. maybe more clean here
+        
         # Setup utils object
-        self.kitti_utils = KittiUtils(self)
+        self.kitti_utils = KittiUtils(self, dst=dataset)
 
     # Paths
     @property
