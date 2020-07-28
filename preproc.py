@@ -79,7 +79,7 @@ def split_work(all_child_pids, dataset, indices_split, num_children):
             os._exit(0)
 
 DATASET_VERSION = 'v1.02-train'
-DATASET_ROOT = '../../nuscenes-devkit/data/'
+DATASET_ROOT = '../local_th/data/'
 
 level5data = LyftDataset(json_path=DATASET_ROOT + "/v1.02-train", data_path=DATASET_ROOT, verbose=True)
 

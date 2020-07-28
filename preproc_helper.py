@@ -139,6 +139,7 @@ def load_sample_names(scene_idx, dataset, all_scenes=False):
                 token_list.append(tok)  
                                                     
         return token_list
+        
 def quaternion_to_euler( quaternion ):
 
     x=quaternion[0]

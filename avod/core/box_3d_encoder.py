@@ -5,7 +5,7 @@ This module converts data to and from the 'box_3d' format
 import numpy as np
 import tensorflow as tf
 
-import avod.core.format_checker as fc
+from avod.core import format_checker as fc
 from wavedata.tools.obj_detection import obj_utils
 
 

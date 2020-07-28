@@ -23,7 +23,6 @@ from lyft_dataset_sdk.lyftdataset import LyftDataset
 from lyft_dataset_sdk.utils.data_classes import LidarPointCloud, Box, Quaternion
 from lyft_dataset_sdk.utils.geometry_utils import view_points, transform_matrix
 
-import avod
 from avod.core import anchor_filter
 from avod.core import anchor_projector
 from avod.core import box_3d_encoder
@@ -35,7 +34,6 @@ from avod.core.anchor_generators import grid_anchor_3d_generator
 from avod.datasets.kitti import kitti_aug
 import avod.datasets.kitti.kitti_utils as kitti_utils
 from avod.core.label_cluster_utils import LabelClusterUtils
-from avod.core.mini_batch_preprocessor import MiniBatchPreprocessor
 
 import anchor_helper
 from frame_helper import FrameCalibrationData
@@ -136,9 +134,7 @@ class RpnModel(model.DetectionModel):
 		# Sets model configs (_config)
 		super(RpnModel, self).__init__(model_config)
 		self.dataset=dataset
-		self._config=pipeline_config[0]
-		self._mini_batch_config=pipeline_config[3].kitti_utils_config.mini_batch_config.rpn_config
-		self.pipeline_config = pipeline_config[3]
+		self.pipeline_config = pipeline_config
 
 		if train_val_test not in ["train", "val", "test"]:
 			raise ValueError('Invalid train_val_test value,'
@@ -149,7 +145,9 @@ class RpnModel(model.DetectionModel):
 
 		# Input config
 		input_config = self._config.input_config
+		self._bev_pixel_size = np.asarray([input_config.bev_dims_h, input_config.bev_dims_w])
 		self._bev_depth = input_config.bev_depth
+		self._img_pixel_size = np.asarray([input_config.img_dims_h, input_config.img_dims_w])
 		self._img_depth = input_config.img_depth
 
 		# Rpn config
@@ -162,6 +160,7 @@ class RpnModel(model.DetectionModel):
 			self._nms_size = rpn_config.rpn_test_nms_size
 
 		self._nms_iou_thresh = rpn_config.rpn_nms_iou_thresh
+
 
 		# Dataset
 		classes=[]
@@ -184,19 +183,6 @@ class RpnModel(model.DetectionModel):
 		self._path_drop_probabilities = self._config.path_drop_probabilities
 		self._train_on_all_samples = self._config.train_on_all_samples
 		self._eval_all_samples = self._config.eval_all_samples
-
-		#Mini batch config
-
-		self.mini_batch_dir = avod.root_dir() + '/data/mini_batches/' + "nuscenes" + '/' + "train" + '/' + "lidar"
-		self.rpn_iou_thresholds = self._mini_batch_config.iou_3d_thresholds
-		self.rpn_neg_iou_range = [self.rpn_iou_thresholds.neg_iou_lo,
-		                          self.rpn_iou_thresholds.neg_iou_hi]
-		self.rpn_pos_iou_range = [self.rpn_iou_thresholds.pos_iou_lo,
-		                          self.rpn_iou_thresholds.pos_iou_hi]
-		self._density_threshold = 1
-		self.rpn_mini_batch_size = 64
-		self.mini_batch_preprocessor = MiniBatchPreprocessor(dataset, self.mini_batch_dir, self._anchor_strides, 
-                                                        self._density_threshold, self.rpn_neg_iou_range, self.rpn_pos_iou_range)
 
 		# Inputs-initialize empty, call method to fill. 
 		self.img_input=[]
@@ -246,9 +232,8 @@ class RpnModel(model.DetectionModel):
 
 		model=tf.keras.applications.VGG16(weights="imagenet", include_top=False)
 		img_features=model.predict(img_input)
-		
 		bev_features=model.predict(bev_input)
-		#print(bev_features.shape)
+		print(bev_features.shape)
 		
 
 
@@ -405,8 +390,9 @@ class RpnModel(model.DetectionModel):
                                                 moving_mean_initializer='zeros', moving_variance_initializer='ones', beta_regularizer=None, gamma_regularizer=None,\
 	                                        beta_constraint=None, gamma_constraint=None, name="batch10")(out)
 	        
-		bev_vgg = tf.keras.models.Model(inputs = inputs_bev, outputs = out, name="bev_vgg")
+		#bev_vgg = tf.keras.models.Model(inputs = inputs_bev, outputs = out, name="bev_vgg")
 		#bev_features=bev_vgg.predict(bev_input)
+		
 		bev_proposal_input = bev_features
 		img_proposal_input = img_features
 
@@ -441,44 +427,42 @@ class RpnModel(model.DetectionModel):
 					#return tf.reshape(ones_mat * multiplier, [-1]),
 					return multiplier
 
-			boxes_bev=tf.squeeze(self._bev_anchors_norm[0])
-			bev_boxes = tf.cast(boxes_bev, dtype=tf.float32)
-			bev_boxes_norm_batches = tf.cast(self._bev_anchors_norm[0], dtype=tf.float32)
-			bev_boxes_norm_batches = tf.squeeze(bev_boxes_norm_batches)
+				print(self._img_anchors_norm[0].shape, self._bev_anchors_norm[0].shape)
+				boxes_bev=tf.squeeze(self._bev_anchors_norm[0])
+				#bev_boxes_norm_batches = tf.cast(self._bev_anchors_norm[0], dtype=tf.float32)
+				#bev_boxes_norm_batches = tf.squeeze(bev_boxes_norm_batches)
 
-			tf_box_indices = get_box_indices(bev_boxes)
+				tf_box_indices = get_box_indices(boxes_bev)
 
 			proposal_roi_size_tf = [3,3]
+			print(self.bev_input[0])
+			# Do ROI Pooling on BEV eager ex on _bev_anchor
+			bev_proposal_rois = tf.image.crop_and_resize(bev_proposal_input,
+		                                                 boxes_bev, tf_box_indices, proposal_roi_size_tf)
+			# Do ROI Pooling on image
 
 			boxes_img=tf.squeeze(self._img_anchors_norm[0])
 			indices=get_box_indices(boxes_img)
 
-			# Do ROI Pooling on image
-			img_proposal_rois = tf.image.crop_and_resize(img_proposal_input/255, boxes_img, indices, proposal_roi_size_tf)
-
-			# Do ROI Pooling on BEV eager ex on _bev_anchor
-			print( boxes_img, indices)
-			#bev_proposal_rois = tf.image.crop_and_resize(bev_proposal_input/255, bev_boxes, tf_box_indices, proposal_roi_size_tf)
-			
+			img_proposal_rois = tf.image.crop_and_resize(img_proposal_input, boxes_img, indices, proposal_roi_size_tf)
 
 		with tf.compat.v1.variable_scope('proposal_roi_fusion'):
 			rpn_fusion_out = None
-			#if self._fusion_method == 'mean':
-			#	tf_features_sum = tf.add(bev_proposal_rois, img_proposal_rois)
-			#	rpn_fusion_out = tf.divide(tf_features_sum, 2)
-			#elif self._fusion_method == 'concat':
-			#	rpn_fusion_out = tf.concat([bev_proposal_rois, img_proposal_rois], axis=3)
-			#else:
-			#	raise ValueError('Invalid fusion method', self._fusion_method)
-			rpn_fusion_out=img_proposal_rois
+			if self._fusion_method == 'mean':
+				tf_features_sum = tf.add(bev_proposal_rois, img_proposal_rois)
+				rpn_fusion_out = tf.divide(tf_features_sum, 2)
+			elif self._fusion_method == 'concat':
+				rpn_fusion_out = tf.concat([bev_proposal_rois, img_proposal_rois], axis=3)
+			else:
+				raise ValueError('Invalid fusion method', self._fusion_method)
 
 		with tf.compat.v1.variable_scope('anchor_predictor', 'ap', [rpn_fusion_out]):
 		    
-			#print("here", tf_features_sum)
+			print("here", tf_features_sum)
 			# Rpn layers config
 			weight_decay = 0.005
 
-			tensor_in = tf.keras.Input(shape=[125,])
+			tensor_in = tf.keras.Input(shape=None, tensor=rpn_fusion_out)
 
 			# Use conv2d instead of fully_connected layers.
 			cls_fc6 = tf.keras.layers.Conv2D(filters=32, kernel_size = [3,3], kernel_initializer='ones', 
@@ -520,6 +504,7 @@ class RpnModel(model.DetectionModel):
 		    
 		# Return the proposals
 		with tf.compat.v1.variable_scope('proposals'):
+		    #anchors = self.placeholders[self.PL_ANCHORS]
 			anchors = self._anchors
 
 		    # Decode anchor regression offsets
@@ -546,7 +531,10 @@ class RpnModel(model.DetectionModel):
 				top_offsets = tf.gather(offsets, top_indices)
 				top_objectness = tf.gather(objectness, top_indices)
 
-		# Get mini batch 
+		# Get mini batch #TODO eager execution 
+		#all_ious_gt = self.placeholders[self.PL_ANCHOR_IOUS]
+		#all_offsets_gt = self.placeholders[self.PL_ANCHOR_OFFSETS]
+		#all_classes_gt = self.placeholders[self.PL_ANCHOR_CLASSES]
 		all_offsets_gt =  self._anchor_offsets
 		all_ious_gt = self._anchor_ios
 		all_classes_gt = self._anchor_classes
@@ -623,16 +611,11 @@ class RpnModel(model.DetectionModel):
 		voxel_size = (0.4,0.4,1.5)
 		z_offset = -2.0
 		#arbitrary shape, must be square though!
-		bev_shape = (224,224, 3)
+		bev_shape = (336,336, 3)
 	    
 		# Only handle one sample at a time for now
 		my_sample_token = my_scene["first_sample_token"]
 		last_sample_token = my_scene["last_sample_token"]
-
-		#label_cluster_utils = LabelClusterUtils(self.dataset)
-		 #all_clusters_sizes, _ = label_cluster_utils.get_clusters(scene_index, self.dataset)
-		#anchors_info, anchor_ious, all_anchor_boxes_3d, anchors = self.mini_batch_preprocessor.preprocess(None)
-
 
 		while my_sample_token!=last_sample_token:
 
@@ -640,9 +623,6 @@ class RpnModel(model.DetectionModel):
 			sample = self.dataset.get('sample', my_sample_token)
 			sample_name = sample.get("token")
 			anchors_info, obj_classes, label_classes, label_anchors, label_boxes_3d = preproc_helper.load_sample_info(sample_name, self.classes, self.dataset)
-			#ground_truth_list=preproc_helper.read_labels(my_sample_token, self.dataset)
-
-
 
 			# Network input data: loop to get batch info
 			img_input = self.dataset.get('sample_data', sample['data']["CAM_FRONT"])
@@ -697,10 +677,6 @@ class RpnModel(model.DetectionModel):
 
 			ground_plane = frame_helper.get_ground_plane_coeff(cam_front_coords, cam_front_left_coords, cam_front_right_coords)
 
-			sample_lidar_name = sample['data']["LIDAR_TOP"]
-			#vx_grid_2d = self.mini_batch_preprocessor.create_sliced_voxel_grid_2d(sample_lidar_name, cam_front_data, ground_plane, self.dataset, 
-              #                                                       source="lidar", image_shape=image_shape)
-
 			#only for cameras, of course lidars do not have instrinsic matrices
 			token=img_data.get("calibrated_sensor_token") 
 			stereo_calib_p2 = frame_helper.read_calibration(token, self.dataset)
@@ -709,6 +685,9 @@ class RpnModel(model.DetectionModel):
 			my_sample_token = self.dataset.get("sample", my_sample_token)["next"]
 
 			# Fill the placeholders for anchor information
+			self._fill_inputs(anchors_info=anchors_info,sample_token=bev_token, ground_plane=ground_plane,
+			                            image_shape=image_shape, stereo_calib_p2=stereo_calib_p2,
+			                            sample_name=sample_name)
 
 			self._label_anchors.append(label_anchors)
 			self._label_boxes_3d.append(label_boxes_3d)
@@ -718,11 +697,7 @@ class RpnModel(model.DetectionModel):
 			self._calib.append(stereo_calib_p2)
 			self._ground_plane.append(ground_plane)
 
-			self._fill_inputs(anchors_info=anchors_info,sample_token=bev_token, ground_plane=ground_plane,
-			                            image_shape=image_shape, stereo_calib_p2=stereo_calib_p2,
-			                            sample_name=sample_name)
-
-		return self.img_input, self.bev_input
+		return self.img_input
 
 	def _fill_inputs(self,
 			sample_token,
@@ -798,7 +773,7 @@ class RpnModel(model.DetectionModel):
 		num_anchors = len(anchors_to_use)
 
 		# Project anchors into bev
-		bev_anchors, bev_anchors_norm = anchor_projector.project_to_bev( anchors_to_use, self._bev_extents)
+		bev_anchors, bev_anchors_norm = anchor_projector.project_to_bev( anchors_to_use, [[-0.4*336*0.5,0.4*336*0.5], [-1.5*336*0.5,1.5*336*0.5 ]])
 
 		# Project box_3d anchors into image space
 		img_anchors, img_anchors_norm = anchor_projector.project_to_image_space(anchors_to_use, stereo_calib_p2, image_shape)
@@ -901,7 +876,7 @@ pipe_path = 'avod/configs/unittest_pipeline.config'
 model_config = config_build.get_model_config_from_file(config_path)
 pipeline_config=config_build.get_configs_from_pipeline_file(pipe_path, "val")
 
-rpn_model = RpnModel(model_config, pipeline_config,
+rpn_model = RpnModel(model_config, pipeline_config[3],
                          train_val_test="val",
                          dataset=level5data)
 predictions = rpn_model.build()
