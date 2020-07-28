@@ -2,3 +2,23 @@
 *.pyc
 
 .ipynb_checkpoints/
+
+avod/configs/train/2020-07-05/
+
+avod/configs/train/2020-07-06/
+
+*.UTENTE
+
+*.npy
+
+avod/tests/datasets/Kitti/object/training/calib/
+
+*.png
+
+avod/tests/datasets/Kitti/object/training/label_2/
+
+avod/tests/datasets/Kitti/object/training/velodyne/
+
+avod/tests/datasets/Kitti/object/training/planes/
+
+avod/tests/datasets/
