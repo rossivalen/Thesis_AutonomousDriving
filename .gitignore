@@ -22,3 +22,10 @@ avod/tests/datasets/Kitti/object/training/velodyne/
 avod/tests/datasets/Kitti/object/training/planes/
 
 avod/tests/datasets/
+
+
+*.sif/
+
+.idea/
+
+wavedata/

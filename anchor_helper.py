@@ -4,7 +4,7 @@ import tensorflow as tf
 from wavedata.tools.core.voxel_grid_2d import VoxelGrid2D
 from lyft_dataset_sdk.utils.data_classes import LidarPointCloud
 
-import avod.core.format_checker as fc
+# import avod.core.format_checker as fc
 from avod.core.minibatch_samplers import balanced_positive_negative_sampler
 
 def sample_mini_batch(max_ious,
