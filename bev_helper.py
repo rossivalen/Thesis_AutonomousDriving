@@ -118,6 +118,7 @@ def scale_boxes(boxes, factor):
         box.wlh = box.wlh * factor
 
 def draw_boxes(im, voxel_size, boxes, classes, z_offset=0.0):
+    corners_voxel_list=[]
     for box in boxes:
         # We only care about the bottom corners
         corners = box.bottom_corners()
@@ -130,5 +131,7 @@ def draw_boxes(im, voxel_size, boxes, classes, z_offset=0.0):
             raise Exception("Unknown class: {}".format(box.name))
 
         cv2.drawContours(im, np.int0([corners_voxel]), 0, (class_color, class_color, class_color), -1)
+        corners_voxel_list.append(corners_voxel)
+    return corners_voxel_list
 
 

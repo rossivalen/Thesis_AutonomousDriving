@@ -73,6 +73,7 @@ class MiniBatchPreprocessor(object):
 
     def _calculate_anchors_info(self,
                                 all_anchor_boxes_3d,
+                                empty_anchor_filter,
                                 gt_labels):
         """Calculates the list of anchor information in the format:
             N x 8 [max_gt_2d_iou, max_gt_3d_iou, (6 x offsets), class_index]
@@ -96,7 +97,7 @@ class MiniBatchPreprocessor(object):
             raise Warning("No valid ground truth label to generate anchors.")
      
         # Filter empty anchors
-        #anchor_indices = np.where(empty_anchor_filter)[0]
+        anchor_indices = np.where(empty_anchor_filter)[0]
         anchor_boxes_3d = all_anchor_boxes_3d
 
         # Convert anchor_boxes_3d to anchor format
@@ -104,9 +105,8 @@ class MiniBatchPreprocessor(object):
 
         # Convert gt to boxes_3d -> anchors -> iou format
         gt_boxes_3d = np.asarray( [box_3d_encoder.object_label_to_box_3d(gt_obj) for gt_obj in gt_labels])
-        gt_anchors = box_3d_encoder.box_3d_to_anchor(gt_boxes_3d,
-                                                     ortho_rotate=True)
-
+        gt_anchors = box_3d_encoder.box_3d_to_anchor(gt_boxes_3d,  ortho_rotate=True)
+        print(anchors,gt_anchors)
         rpn_iou_type = "2d"
         if rpn_iou_type == '2d':
             # Convert anchors to 2d iou format
@@ -118,8 +118,7 @@ class MiniBatchPreprocessor(object):
             # Convert anchors to 3d iou format for calculation
             anchors_for_3d_iou = box_3d_encoder.box_3d_to_3d_iou_format(anchor_boxes_3d)
 
-            gt_boxes_for_3d_iou = \
-                box_3d_encoder.box_3d_to_3d_iou_format(gt_boxes_3d)
+            gt_boxes_for_3d_iou = box_3d_encoder.box_3d_to_3d_iou_format(gt_boxes_3d)
         else:
             raise ValueError('Invalid rpn_iou_type {}', rpn_iou_type)
        
@@ -128,7 +127,7 @@ class MiniBatchPreprocessor(object):
         all_info = np.zeros((num_anchors, self.col_length))
 
         # Update anchor indices
-        #all_info[:, self.mini_batch_utils.col_anchor_indices] = anchor_indices
+        #all_info[:, self.col_anchor_indices] = anchor_indices
 
         # For each of the labels, generate samples
         for gt_idx in range(len(gt_labels)):
@@ -143,7 +142,7 @@ class MiniBatchPreprocessor(object):
             elif rpn_iou_type == '3d':
                 gt_box_for_3d_iou = gt_boxes_for_3d_iou[gt_idx]
                 ious = evaluation.three_d_iou(gt_box_for_3d_iou, anchors_for_3d_iou)
-
+           
             # Only update indices with a higher iou than before
             update_indices = np.greater( ious, all_info[:, self.col_ious])
          
@@ -154,18 +153,17 @@ class MiniBatchPreprocessor(object):
             anchors_to_update = anchors[update_indices]
             gt_anchor = box_3d_encoder.box_3d_to_anchor(gt_box_3d, ortho_rotate=True)
             offsets = anchor_encoder.anchor_to_offset(anchors_to_update, gt_anchor)
-
+            #print("g", gt_box_3d, "anchors", anchor_boxes_3d)
             # Convert gt type to index
             class_idx = self.class_str_to_index(gt_obj.cls)
 
             # Update anchors info (indices already updated)
             # [index, iou, (offsets), class_index]
             all_info[update_indices, self.col_ious] = ious_to_update
-
             all_info[update_indices, self.col_offsets_lo: self.col_offsets_hi] = offsets
             all_info[update_indices, self.col_class_idx] = class_idx
 
-        return all_info
+        return anchor_indices, ious, offsets, class_idx
 
     def preprocess(self, indices):
         """Preprocesses anchor info and saves info to files
@@ -188,7 +186,7 @@ class MiniBatchPreprocessor(object):
 
         # Get clusters for class
         label_cluster_utils = LabelClusterUtils(dataset)
-        all_clusters_sizes, _ = label_cluster_utils.get_clusters(6, dataset)
+        all_clusters_sizes, _ = label_cluster_utils.get_clusters(5, dataset)
         
         anchor_generator = grid_anchor_3d_generator.GridAnchor3dGenerator()    
 
@@ -209,7 +207,7 @@ class MiniBatchPreprocessor(object):
     #                 print("{} / {}: Sample already preprocessed".format(sample_idx, num_samples, sample_name))
     #                 continue
 
-            # Get ground truth and filter based on difficulty
+            # Get ground truth
             ground_truth_list = preproc_helper.read_labels(sample_idx, dataset)
 
             # Filter objects to dataset classes
@@ -256,7 +254,7 @@ class MiniBatchPreprocessor(object):
                 else:
                     # Generate anchors for all classes
                     grid_anchor_boxes_3d = anchor_generator.generate(
-                        area_3d=self._area_extents,
+                        area_3d=[[-100,100],[-100,100],[-100,100]],
                         anchor_3d_sizes=all_clusters_sizes[class_idx],
                         anchor_stride=self._anchor_strides,
                         ground_plane=ground_plane)
@@ -269,12 +267,13 @@ class MiniBatchPreprocessor(object):
                     empty_anchor_filter = anchor_filter.get_empty_anchor_filter_2d(anchors, vx_grid_2d, self._density_threshold)
 
                     # Calculate anchor info
-                    anchors_info = self._calculate_anchors_info( all_anchor_boxes_3d_np, ground_truth_list)
-                    anchor_ious = anchors_info[:, self.col_ious]
 
+                    anchor_indices, anchor_ious, offsets, class_idx = self._calculate_anchors_info( all_anchor_boxes_3d_np, empty_anchor_filter, ground_truth_list)
+                    #anchor_ious = anchors_info[:, self.col_ious]
+                    print("anchors", anchor_indices, anchor_ious, offsets, class_idx)
                     valid_iou_indices = np.where(anchor_ious > 0.0)[0]
                     # Save anchors info
-                    self._save_to_file(classes_all[class_idx], anchor_strides, sample_idx, anchors_info)
+                    #self._save_to_file(classes_all[class_idx], anchor_strides, sample_idx, anchors_info)
 
     def _check_for_existing(self, classes_name, anchor_strides, sample_name):
         """

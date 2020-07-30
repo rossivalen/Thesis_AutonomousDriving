@@ -25,6 +25,7 @@ class MiniBatchUtils:
         pipeline_config=config_build.get_configs_from_pipeline_file(config_path, "val")
         self.kitti_utils_config = pipeline_config[3].kitti_utils_config
         self._area_extents = self.kitti_utils_config.area_extents
+        #self._area_extents = np.array([[-168,168],[-168,168],[-168,168]])
         self._anchor_strides = np.array([0.5, 0.5])
 
         ##############################

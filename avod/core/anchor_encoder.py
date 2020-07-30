@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-import avod.core.format_checker as fc
+from avod.core import format_checker as fc
 
 
 def anchor_to_offset(anchors, ground_truth):
