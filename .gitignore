@@ -1,2 +1,10 @@
 
 *.pyc
+
+.idea/
+
+*.sif/
+
+wavedata/
+
+.ipynb_checkpoints/
