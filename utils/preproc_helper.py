@@ -66,7 +66,7 @@ def read_labels(sample_token, dataset, results=False):
     for i in range(len(tokens)):
         obj = ObjectLabel()
         token = tokens[i]
-        sample_annot = dataset.get("sample_annotation", tokens[0])
+        sample_annot = dataset.get("sample_annotation", token)
         obj.cls = sample_annot.get("category_name")
         obj.visibility = sample_annot.get("visibility_token")
         size = sample_annot.get("size")
@@ -139,7 +139,6 @@ def load_sample_names(scene_idx, dataset, all_scenes=False):
                 token_list.append(tok)  
                                                     
         return token_list
-        
 def quaternion_to_euler( quaternion ):
 
     x=quaternion[0]
@@ -174,7 +173,6 @@ def load_sample_info(sample_name, classes, dataset):
             obj_classes = [obj_label.cls for obj_label in obj_labels]
             label_classes = [class_str_to_index(obj_label.cls) for obj_label in obj_labels]
             label_classes = np.asarray(label_classes, dtype=np.int32)
-
             # Return empty anchors_info if no ground truth after filtering
             if len(label_boxes_3d) == 0:
                 anchors_info = []
