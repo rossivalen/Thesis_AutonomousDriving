@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-def gen_anchors(w_stride, h_stride, ratios=[0.1,0.3], scales=np.asarray([8,16,32])):
+def gen_anchors(w_stride, h_stride, ratios=[0.5,1,2], scales=np.asarray([2,4,8,16])):
     base_anchor = np.array([1, 1, w_stride, h_stride]) - 1
     ratio_anchors = _ratio_enum(base_anchor, ratios)
     anchors = np.vstack([_scale_enum(ratio_anchors[i, :], scales)
