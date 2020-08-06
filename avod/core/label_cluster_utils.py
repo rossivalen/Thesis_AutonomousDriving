@@ -4,7 +4,7 @@ import sys
 import numpy as np
 from sklearn.cluster import KMeans
 
-import preproc_helper
+from utils import preproc_helper
 
 import avod
 

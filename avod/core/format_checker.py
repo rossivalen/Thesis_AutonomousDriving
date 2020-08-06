@@ -50,7 +50,7 @@ import numpy as np
 import tensorflow as tf
 
 from wavedata.tools.obj_detection import obj_utils
-import preproc_helper
+from utils import preproc_helper
 
 def check_object_label_format(input_data):
     """Checks for correct ObjectLabel format. If not proper type, raises error.

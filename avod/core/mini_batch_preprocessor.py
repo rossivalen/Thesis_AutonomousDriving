@@ -22,9 +22,9 @@ from avod.core.anchor_generators import grid_anchor_3d_generator
 from avod.core.label_cluster_utils import LabelClusterUtils
 import avod.builders.config_builder_util as config_build
 
-import preproc_helper
-import bev_helper
-import frame_helper
+from utils import preproc_helper
+from utils import bev_helper
+from utils import frame_helper
 
 
 class MiniBatchPreprocessor(object):
